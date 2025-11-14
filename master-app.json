@@ -1,0 +1,72 @@
+{
+  "appName": "Trinibuild Pay",
+  "branding": {
+    "primaryColor": "#C3073F",
+    "accentColor": "#FED128",
+    "heroImage": "island_vendors_cash.jpg",
+    "style": "Trinidad and Tobago, bold, festive, mobile-first"
+  },
+  "features": {
+    "onboarding": "step-by-step, mobile-first, vendor/customer split, phone verification via SMS, WhatsApp integration",
+    "codOptions": ["cash on delivery", "cash at pickup", "QR scan payout", "mobile wallet integration (future)", "group order support"],
+    "qrCode": {
+      "commercialGrade": true,
+      "orderVerification": true,
+      "vendorBadgeVerification": true
+    },
+    "payments": [
+      {
+        "method": "PayPal",
+        "currency": ["TTD", "USD"],
+        "fees": {
+          "international": "3.99% + $0.50",
+          "local": "2.5%"
+        },
+        "payoutGoalPerUser": 10
+      }
+    ],
+    "legalDocs": {
+      "jobLetter": "auto-generated for banks/credit card applications, Pro feature",
+      "salesReport": "bank/download ready, Pro feature",
+      "businessSummary": "profile data for legal/financial use",
+      "access": "Pro and higher only, previews for free/base"
+    },
+    "subscriptions": [
+      {
+        "planName": "Free",
+        "priceUSD": 0,
+        "features": ["up to 3 products","basic QR/payments","map listing","loyalty (earn only)","event join"]
+      },
+      {
+        "planName": "Pro",
+        "priceUSD": 14,
+        "features": ["unlimited products","host events/promos","download legal docs","badge boost","advanced analytics","priority support"]
+      },
+      {
+        "planName": "Enterprise",
+        "priceUSD": 39,
+        "features": ["business portal","custom onboarding","dedicated manager","API/apps","full legal export help"]
+      }
+    ],
+    "security": {
+      "jwtAuth": true,
+      "rateLimit": true,
+      "sanitizedInputs": true,
+      "backendAuditing": true
+    },
+    "backend": "Node.js, Express, MongoDB, Redis, Twilio SMS API, AWS S3, PayPal Commerce",
+    "mobile": "responsive, offline mode, PWA enabled"
+  },
+  "ui": {
+    "fastLoading": true,
+    "cleanLayout": true,
+    "accessibilitySupport": true,
+    "TriniLanguageToggle": true,
+    "eventFeed": "community popups, vendor promos"
+  },
+  "compliance": {
+    "GDPR": true,
+    "DataResidency": "Caribbean/AWS",
+    "AMLChecks": true
+  }
+}
