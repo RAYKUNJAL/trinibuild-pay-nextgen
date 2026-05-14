@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html, body {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.prose-code pre {
+  @apply bg-ink-900 text-ink-50 rounded-lg p-4 overflow-x-auto text-sm font-mono;
+}

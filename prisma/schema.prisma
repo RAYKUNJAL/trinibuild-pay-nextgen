@@ -1,0 +1,143 @@
+// CashConnect SaaS - multi-tenant schema
+// Three tiers: API_LICENSING, WHITE_LABEL, ENTERPRISE
+// Every domain row is scoped by tenantId for hard tenant isolation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantTier {
+  API_LICENSING
+  WHITE_LABEL
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  EXPIRED
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+model Tenant {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  name          String
+  tier          TenantTier    @default(API_LICENSING)
+  status        TenantStatus  @default(TRIAL)
+  country       String        @default("TT")
+  currency      String        @default("TTD")
+  brandColor    String?
+  brandLogoUrl  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  users         User[]
+  apiKeys       ApiKey[]
+  verifications Verification[]
+  subscription  Subscription?
+  webhooks      Webhook[]
+
+  @@index([status])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String
+  name         String?
+  passwordHash String
+  role         UserRole @default(OWNER)
+  createdAt    DateTime @default(now())
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([email])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  prefix      String   // visible prefix, e.g. "cc_live_a1b2"
+  hash        String   // bcrypt hash of full key
+  scopes      String   @default("verifications:write")
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([prefix])
+}
+
+model Verification {
+  id             String             @id @default(cuid())
+  tenantId       String
+  reference      String             // merchant's order/invoice ref
+  bankCode       String
+  accountNumber  String             // last4 stored; full number tokenized in prod
+  amountMinor    Int                // amount in minor units (e.g. cents)
+  currency       String             @default("TTD")
+  payerName      String?
+  status         VerificationStatus @default(PENDING)
+  failureReason  String?
+  verifiedAt     DateTime?
+  createdAt      DateTime           @default(now())
+
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@unique([tenantId, reference])
+}
+
+model Subscription {
+  id            String   @id @default(cuid())
+  tenantId      String   @unique
+  tier          TenantTier
+  monthlyFeeMinor Int
+  perTxnFeeMinor Int
+  currency      String   @default("TTD")
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAt      DateTime?
+  createdAt     DateTime @default(now())
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  tenantId    String
+  url         String
+  secret      String
+  events      String   @default("verification.completed,verification.failed")
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
