@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "seed": "tsx scripts/seed.ts",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push"
   },
