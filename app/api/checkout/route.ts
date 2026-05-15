@@ -159,7 +159,16 @@ export async function POST(request: Request) {
             qty: -tiers[i].qty,
           });
         }
-        const errMsg = (incrError as { message?: string }).message ?? "Quantity reservation failed";
+        const errObj = incrError as { message?: string; code?: string };
+        const errMsg = errObj.message ?? "Quantity reservation failed";
+        const isSoldOut =
+          errMsg.includes("tier_sold_out") || errObj.code === "check_violation" || errObj.code === "23514";
+        if (isSoldOut) {
+          return NextResponse.json(
+            { error: "Sold out", code: "tier_sold_out", tier_id: sel.tierId },
+            { status: 409 },
+          );
+        }
         return NextResponse.json({ error: errMsg }, { status: 409 });
       }
     }
