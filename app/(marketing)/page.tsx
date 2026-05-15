@@ -9,6 +9,13 @@ import {
   ShieldCheck,
   Users,
   Ticket,
+  Brain,
+  Gauge,
+  TrendingUp,
+  AlertTriangle,
+  Check,
+  X,
+  Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -169,6 +176,174 @@ const buyerQuotes = [
   },
 ];
 
+const aiCapabilities = [
+  {
+    Icon: ShieldCheck,
+    title: "AI fraud detection",
+    body: "Bank receipts scanned in seconds. Fakes flagged before they reach your inbox.",
+  },
+  {
+    Icon: Gauge,
+    title: "AI readiness coach",
+    body: "Score every event before it goes live. Know exactly what's missing.",
+  },
+  {
+    Icon: TrendingUp,
+    title: "AI demand forecast",
+    body: "Price smarter. Pace alerts when sales fall behind your last fete.",
+  },
+  {
+    Icon: AlertTriangle,
+    title: "AI post-event debrief",
+    body: "What worked, what flopped, and what to do different next time.",
+  },
+];
+
+type Cell = { kind: "check" } | { kind: "x" } | { kind: "partial"; label?: string } | { kind: "text"; label: string };
+
+type ComparisonRow = {
+  label: string;
+  we: Cell;
+  taack: Cell;
+  island: Cell;
+  eventbrite: Cell;
+  diy: Cell;
+};
+
+const comparisonRows: ComparisonRow[] = [
+  {
+    label: "Bank receipt payments (no card needed)",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "x" },
+    diy: { kind: "partial", label: "Manual" },
+  },
+  {
+    label: "WhatsApp ticket delivery",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "x" },
+    diy: { kind: "check" },
+  },
+  {
+    label: "AI fraud detection on receipts",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "x" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "AI readiness coach",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "x" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "AI demand forecast & pace alerts",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "x" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "Multi-island coverage",
+    we: { kind: "text", label: "12 islands" },
+    taack: { kind: "text", label: "T&T only" },
+    island: { kind: "text", label: "3 islands" },
+    eventbrite: { kind: "text", label: "Global (USD)" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "Local currency (TTD, JMD, BBD, XCD…)",
+    we: { kind: "check" },
+    taack: { kind: "partial", label: "TTD" },
+    island: { kind: "partial", label: "TTD" },
+    eventbrite: { kind: "partial", label: "USD" },
+    diy: { kind: "check" },
+  },
+  {
+    label: "Group ticketing (split with crew)",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "partial" },
+    eventbrite: { kind: "check" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "Offline door scanner",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "check" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "Apple & Google Wallet passes",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "check" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "Verified promoter trust system",
+    we: { kind: "check" },
+    taack: { kind: "x" },
+    island: { kind: "x" },
+    eventbrite: { kind: "partial" },
+    diy: { kind: "x" },
+  },
+  {
+    label: "Built for Caribbean carnival culture",
+    we: { kind: "check" },
+    taack: { kind: "partial" },
+    island: { kind: "partial" },
+    eventbrite: { kind: "x" },
+    diy: { kind: "check" },
+  },
+];
+
+function ComparisonCell({ value, highlight = false }: { value: Cell; highlight?: boolean }) {
+  const base = `px-4 py-3 text-center ${highlight ? "bg-brand-red/[0.04]" : ""}`;
+  if (value.kind === "check") {
+    return (
+      <td className={base}>
+        <Check className={`mx-auto h-4 w-4 ${highlight ? "text-brand-red" : "text-foreground/80"}`} aria-label="Included" />
+      </td>
+    );
+  }
+  if (value.kind === "x") {
+    return (
+      <td className={base}>
+        <X className="mx-auto h-4 w-4 text-muted-foreground/50" aria-label="Not offered" />
+      </td>
+    );
+  }
+  if (value.kind === "partial") {
+    return (
+      <td className={base}>
+        <div className="flex flex-col items-center gap-0.5">
+          <Minus className="h-4 w-4 text-muted-foreground" aria-label="Limited" />
+          {value.label ? <span className="text-[10px] text-muted-foreground">{value.label}</span> : null}
+        </div>
+      </td>
+    );
+  }
+  return (
+    <td className={base}>
+      <span className={`text-xs ${highlight ? "font-semibold text-brand-red" : "text-muted-foreground"}`}>
+        {value.label}
+      </span>
+    </td>
+  );
+}
+
 const promoterQuotes = [
   {
     name: "Kerlon",
@@ -252,6 +427,117 @@ export default function HomePage() {
               ))}
             </CardContent>
           </Card>
+        </div>
+      </Section>
+
+      {/* What we are — AI ticket business description */}
+      <Section className="border-y border-border/60 bg-gradient-to-b from-background to-muted/20">
+        <div className="grid gap-10 md:grid-cols-2 md:items-center">
+          <div>
+            <Badge variant="outline" className="mb-4 w-fit">
+              <Brain className="mr-1.5 h-3.5 w-3.5" aria-hidden /> AI ticketing platform
+            </Badge>
+            <h2 className="font-display text-3xl font-bold md:text-4xl">
+              The Caribbean&apos;s first AI-powered ticket platform.
+            </h2>
+            <p className="mt-4 text-muted-foreground">
+              WeFetePass is built for how Caribbean fetes actually run — bank transfers,
+              WhatsApp drops, and last-minute door chaos. Our AI handles the boring stuff
+              so promoters can focus on the vibes, and buyers can trust the QR code in
+              their pocket.
+            </p>
+            <p className="mt-3 text-muted-foreground">
+              From Trinidad Carnival to Crop Over to Reggae Sumfest — one platform,
+              twelve islands, every fete.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Badge variant="outline">🇹🇹 Trinidad</Badge>
+              <Badge variant="outline">🇯🇲 Jamaica</Badge>
+              <Badge variant="outline">🇧🇧 Barbados</Badge>
+              <Badge variant="outline">🇬🇩 Grenada</Badge>
+              <Badge variant="outline">🇱🇨 St. Lucia</Badge>
+              <Badge variant="outline">+ 7 more</Badge>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {aiCapabilities.map(({ Icon, title, body }) => (
+              <Card key={title} className="border-brand-red/10">
+                <CardHeader className="space-y-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-brand-red/10 text-brand-red">
+                    <Icon className="h-4 w-4" aria-hidden />
+                  </div>
+                  <CardTitle className="text-base">{title}</CardTitle>
+                  <CardDescription className="text-sm">{body}</CardDescription>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </Section>
+
+      {/* Why pick us — comparison chart */}
+      <Section>
+        <div className="mb-10 max-w-2xl">
+          <h2 className="font-display text-3xl font-bold md:text-4xl">
+            Why pick WeFetePass.
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            How we stack up against the platforms Caribbean promoters use today.
+          </p>
+        </div>
+
+        <Card className="overflow-hidden border-border/60">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 bg-muted/30">
+                  <th className="px-4 py-4 text-left font-semibold">Feature</th>
+                  <th className="px-4 py-4 text-center font-semibold text-brand-red">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span>WeFetePass</span>
+                      <span className="text-[10px] font-normal uppercase tracking-wide text-muted-foreground">Built for the Caribbean</span>
+                    </div>
+                  </th>
+                  <th className="px-4 py-4 text-center font-semibold text-muted-foreground">Taack</th>
+                  <th className="px-4 py-4 text-center font-semibold text-muted-foreground">Island eTickets</th>
+                  <th className="px-4 py-4 text-center font-semibold text-muted-foreground">Eventbrite</th>
+                  <th className="px-4 py-4 text-center font-semibold text-muted-foreground">DIY / WhatsApp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparisonRows.map((row, i) => (
+                  <tr
+                    key={row.label}
+                    className={`border-b border-border/40 ${i % 2 === 0 ? "bg-background" : "bg-muted/10"}`}
+                  >
+                    <td className="px-4 py-3 font-medium">{row.label}</td>
+                    <ComparisonCell value={row.we} highlight />
+                    <ComparisonCell value={row.taack} />
+                    <ComparisonCell value={row.island} />
+                    <ComparisonCell value={row.eventbrite} />
+                    <ComparisonCell value={row.diy} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5">
+              <Check className="h-3.5 w-3.5 text-brand-red" aria-hidden /> Included
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Minus className="h-3.5 w-3.5" aria-hidden /> Limited
+            </span>
+            <span className="flex items-center gap-1.5">
+              <X className="h-3.5 w-3.5" aria-hidden /> Not offered
+            </span>
+          </div>
+          <Link href="/compare" className="underline-offset-2 hover:underline">
+            See full comparison →
+          </Link>
         </div>
       </Section>
 
