@@ -1,3 +1,6 @@
+import { llm } from "@/lib/llm/client";
+import { READINESS_SUGGESTION_SYSTEM } from "@/lib/llm/prompts";
+
 export type ReadinessCheck = {
   key: string;
   label: string;
@@ -79,4 +82,43 @@ export function getReadinessMessage(score: number, daysToEvent: number): string 
 
   // daysToEvent === 2 (the 48-hr window)
   return `48 hours to go and your readiness is ${score}/100. Get those last items done before the crowd starts asking questions.`;
+}
+
+/**
+ * Optionally generate an LLM-written, action-oriented readiness suggestion
+ * (1-2 sentences) given the current score and the set of incomplete checks.
+ *
+ * Returns `null` if the LLM brain is not configured or the call fails, so
+ * callers can fall back to {@link getReadinessMessage} or another
+ * deterministic string.
+ *
+ * @param score        Current readiness score (0-100)
+ * @param missingChecks  Labels of checks that are still incomplete (use the
+ *                       `label` field from {@link ReadinessCheck}, not the
+ *                       internal `key`, so the LLM has human-readable input).
+ */
+export async function getReadinessSuggestionWithLLM(
+  score: number,
+  missingChecks: string[],
+): Promise<string | null> {
+  if (!llm.isConfigured()) return null;
+
+  const prompt =
+    `Current readiness score: ${score}/100\n` +
+    `Incomplete checks (${missingChecks.length}):\n` +
+    (missingChecks.length === 0
+      ? "(none — everything is done)"
+      : missingChecks.map((c) => `- ${c}`).join("\n")) +
+    `\n\nWrite 1-2 sentences of action-oriented advice for the promoter.`;
+
+  const result = await llm.text({
+    prompt,
+    system: READINESS_SUGGESTION_SYSTEM,
+    model: "haiku",
+    maxTokens: 160,
+    temperature: 0.6,
+  });
+
+  if (!result) return null;
+  return result.text.trim();
 }
