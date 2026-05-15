@@ -35,12 +35,13 @@ export default async function EventWebsitePreviewPage({
 
   if (!eventData) notFound();
 
-  // Fetch website config
-  const { data: websiteData } = await supabase
+  // Fetch website config (event_websites added in migration 0007)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: websiteData } = (await (supabase as any)
     .from("event_websites")
     .select("*")
     .eq("event_id", id)
-    .maybeSingle();
+    .maybeSingle()) as { data: EventWebsite | null };
 
   if (!websiteData) {
     return (

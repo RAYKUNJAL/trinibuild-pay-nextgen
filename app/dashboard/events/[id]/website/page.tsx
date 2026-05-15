@@ -21,14 +21,22 @@ export default async function EventWebsitePage({
   const supabase = await createClient();
 
   // Fetch event (must belong to this organizer)
-  const { data: event } = await supabase
+  const { data: eventRow } = await supabase
     .from("events")
-    .select("id, title, slug, cover_image_url, organizer_id, status")
+    .select("*")
     .eq("id", id)
     .eq("organizer_id", promoter.user.id)
     .maybeSingle();
 
-  if (!event) notFound();
+  if (!eventRow) notFound();
+  const event = eventRow as {
+    id: string;
+    title: string;
+    slug: string;
+    cover_image_url: string | null;
+    organizer_id: string;
+    status: string;
+  };
 
   // Fetch tiers
   const { data: tiersData } = await supabase
@@ -39,14 +47,16 @@ export default async function EventWebsitePage({
 
   const tiers = tiersData ?? [];
 
-  // Fetch existing website config (may not exist yet)
-  const { data: websiteData } = await supabase
+  // Fetch existing website config (may not exist yet).
+  // event_websites is defined in migration 0007; types generated post-migration.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: websiteData } = (await (supabase as any)
     .from("event_websites")
     .select("*")
     .eq("event_id", id)
-    .maybeSingle();
+    .maybeSingle()) as { data: EventWebsite | null };
 
-  const initialWebsite = websiteData as EventWebsite | null;
+  const initialWebsite = websiteData;
 
   return (
     <div className="space-y-6">

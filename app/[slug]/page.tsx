@@ -32,33 +32,38 @@ async function getPublicWebsiteData(slug: string) {
 
   const supabase = await createClient();
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyClient = supabase as any;
+
   // 1. Try custom_slug match in event_websites (published only)
-  const { data: byCustomSlug } = await supabase
+  const { data: byCustomSlug } = (await anyClient
     .from("event_websites")
     .select("*, events(*)")
     .eq("custom_slug", slug)
     .eq("status", "published")
-    .maybeSingle();
+    .maybeSingle()) as { data: (EventWebsite & { events: Event }) | null };
 
   if (byCustomSlug) {
-    return { website: byCustomSlug, event: (byCustomSlug as Record<string, unknown>).events };
+    const { events: eventRow, ...website } = byCustomSlug;
+    return { website, event: eventRow };
   }
 
   // 2. Try events.slug match — find the event first, then its website
-  const { data: eventBySlug } = await supabase
+  const { data: eventBySlugRaw } = await supabase
     .from("events")
     .select("*")
     .eq("slug", slug)
     .neq("status", "cancelled")
     .maybeSingle();
 
-  if (eventBySlug) {
-    const { data: website } = await supabase
+  if (eventBySlugRaw) {
+    const eventBySlug = eventBySlugRaw as unknown as Event;
+    const { data: website } = (await anyClient
       .from("event_websites")
       .select("*")
       .eq("event_id", eventBySlug.id)
       .eq("status", "published")
-      .maybeSingle();
+      .maybeSingle()) as { data: EventWebsite | null };
 
     if (website) {
       return { website, event: eventBySlug };

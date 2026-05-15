@@ -129,7 +129,7 @@ export default async function SegmentsPage() {
     const isLapsed = lastOrderDate < sixMonthsAgo;
     const isAtRisk = !isLapsed && lastOrderDate < threeMonthsAgo && b.orderCount === 1;
     const isVip = b.totalCents >= 200_000 || b.orderCount >= 5;
-    const isLoyal = b.distinctEvents >= 3;
+    const isLoyal = b.eventIds.size >= 3;
     const isFirstTimer = b.orderCount === 1 && !isAtRisk && !isLapsed;
 
     if (isVip) segments.vip.push(buyer);
