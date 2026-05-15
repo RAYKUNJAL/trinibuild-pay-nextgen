@@ -36,12 +36,31 @@ export default async function VerificationPage() {
     .eq("profile_id", user.id)
     .maybeSingle();
 
-  const record: VerificationRecord | null = rawRecord
+  type RawVerificationRecord = {
+    id: string;
+    status: "not_applied" | "pending" | "approved" | "rejected";
+    legal_name: string | null;
+    business_reg_number: string | null;
+    id_document_url: string | null;
+    social_proof_urls: unknown;
+    admin_note: string | null;
+    created_at: string;
+  };
+
+  const typedRecord = rawRecord as RawVerificationRecord | null;
+
+  const record: VerificationRecord | null = typedRecord
     ? {
-        ...rawRecord,
-        social_proof_urls: Array.isArray(rawRecord.social_proof_urls)
-          ? (rawRecord.social_proof_urls as string[])
+        id: typedRecord.id,
+        status: typedRecord.status,
+        legal_name: typedRecord.legal_name,
+        business_reg_number: typedRecord.business_reg_number,
+        id_document_url: typedRecord.id_document_url,
+        social_proof_urls: Array.isArray(typedRecord.social_proof_urls)
+          ? (typedRecord.social_proof_urls as string[])
           : [],
+        admin_note: typedRecord.admin_note,
+        created_at: typedRecord.created_at,
       }
     : null;
 

@@ -55,11 +55,13 @@ export async function POST(request: Request) {
     const serviceClient = await createServiceClient();
 
     // Check if there is an existing record — only allow upsert if status is 'not_applied'
-    const { data: existing } = await serviceClient
+    const { data: existingRaw } = await serviceClient
       .from("promoter_verifications")
       .select("id, status")
       .eq("profile_id", user.id)
       .maybeSingle();
+
+    const existing = existingRaw as { id: string; status: string } | null;
 
     if (existing && existing.status !== "not_applied") {
       return NextResponse.json(
@@ -84,11 +86,13 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     };
 
-    const { data: record, error: upsertError } = await serviceClient
+    const { data: recordRaw, error: upsertError } = await serviceClient
       .from("promoter_verifications")
       .upsert(upsertPayload, { onConflict: "profile_id" })
       .select("id, status")
       .single();
+
+    const record = recordRaw as { id: string; status: string } | null;
 
     if (upsertError || !record) {
       console.error("[verification/apply] upsert error:", upsertError);
