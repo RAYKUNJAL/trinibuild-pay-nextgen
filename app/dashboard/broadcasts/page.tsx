@@ -68,7 +68,7 @@ export default async function BroadcastsPage() {
       .from("events")
       .select("id, title")
       .in("id", eventIds);
-    for (const e of events ?? []) {
+    for (const e of (events ?? []) as { id: string; title: string }[]) {
       eventTitleMap.set(e.id, e.title);
     }
   }

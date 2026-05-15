@@ -95,18 +95,24 @@ export async function POST(request: Request) {
           .from("order_items")
           .select("order_id")
           .in("tier_id", tierIds);
-        const orderIds = (tierOrderIds ?? []).map((r) => r.order_id);
+        const orderIds = (tierOrderIds ?? []).map(
+          (r) => (r as { order_id: string }).order_id,
+        );
         if (orderIds.length === 0) {
           recipientCount = 0;
         } else {
           ordersQuery = ordersQuery.in("id", orderIds);
           const { data: phoneRows } = await ordersQuery;
-          const unique = new Set((phoneRows ?? []).map((r) => r.buyer_phone));
+          const unique = new Set(
+            (phoneRows ?? []).map((r) => (r as { buyer_phone: string | null }).buyer_phone),
+          );
           recipientCount = unique.size;
         }
       } else {
         const { data: phoneRows } = await ordersQuery;
-        const unique = new Set((phoneRows ?? []).map((r) => r.buyer_phone));
+        const unique = new Set(
+          (phoneRows ?? []).map((r) => (r as { buyer_phone: string | null }).buyer_phone),
+        );
         recipientCount = unique.size;
       }
     }

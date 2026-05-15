@@ -18,14 +18,15 @@ export default async function ManualCheckinPage({ params }: PageProps) {
   if (!promoter?.user) return null;
 
   const supabase = await createClient();
-  const { data: event } = await supabase
+  const { data: eventRaw } = await supabase
     .from("events")
     .select("id, title, venue, capacity")
     .eq("id", eventId)
     .eq("organizer_id", promoter.user.id)
     .maybeSingle();
 
-  if (!event) notFound();
+  if (!eventRaw) notFound();
+  const event = eventRaw as { id: string; title: string; venue: string; capacity: number | null };
 
   const { count: totalPasses } = await supabase
     .from("passes")
