@@ -134,22 +134,23 @@ export async function POST(request: Request) {
 
     // Reserve quantities atomically
     for (const sel of tiers) {
-      const { error: incrError } = await service.rpc("increment_tier_quantity_sold", {
-        tier_id: sel.tierId,
-        qty: sel.qty,
-      });
+      const { error: incrError } = await (service.rpc as Function)(
+        "increment_tier_quantity_sold",
+        { tier_id: sel.tierId, qty: sel.qty },
+      );
       if (incrError) {
         // Best-effort rollback
         await service.from("orders").update({ status: "cancelled" }).eq("id", order.id);
         // Attempt to decrement previously incremented tiers
         const prevIdx = tiers.indexOf(sel);
         for (let i = 0; i < prevIdx; i++) {
-          await service.rpc("increment_tier_quantity_sold", {
-            tier_id: tiers[i].tierId,
-            qty: -tiers[i].qty,
-          });
+          await (service.rpc as Function)(
+            "increment_tier_quantity_sold",
+            { tier_id: tiers[i].tierId, qty: -tiers[i].qty },
+          );
         }
-        return NextResponse.json({ error: incrError.message }, { status: 409 });
+        const errMsg = (incrError as { message?: string }).message ?? "Quantity reservation failed";
+        return NextResponse.json({ error: errMsg }, { status: 409 });
       }
     }
 
@@ -213,7 +214,7 @@ export async function POST(request: Request) {
       // Rollback: cancel order and decrement quantities
       await service.from("orders").update({ status: "cancelled" }).eq("id", order.id);
       for (const sel of tiers) {
-        await service.rpc("increment_tier_quantity_sold", {
+        await (service.rpc as Function)("increment_tier_quantity_sold", {
           tier_id: sel.tierId,
           qty: -sel.qty,
         });

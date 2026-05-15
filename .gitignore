@@ -9,7 +9,7 @@ dist
 .DS_Store
 *.pem
 .vercel
-.tsbuildinfo
+*.tsbuildinfo
 next-env.d.ts
 supabase/.branches
 supabase/.temp

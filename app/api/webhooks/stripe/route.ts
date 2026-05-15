@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { stripe, stripeConfigured } from "@/lib/payments";
-import { env } from "@/lib/env";
+import { stripe } from "@/lib/payments";
+import { env, stripeConfigured } from "@/lib/env";
 import { shortCode } from "@/lib/utils";
 import { queuePassDelivery } from "@/lib/whatsapp";
 
@@ -73,9 +73,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing Stripe signature" }, { status: 400 });
   }
 
-  let event: ReturnType<typeof stripe>["webhooks"]["constructEvent"] extends (...args: unknown[]) => infer R
-    ? R
-    : never;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let event: any;
 
   try {
     event = stripe().webhooks.constructEvent(rawBody, sig, env.STRIPE_WEBHOOK_SECRET!);
