@@ -3,7 +3,10 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { slugify, shortCode } from "@/lib/utils";
 import type { Database } from "@/lib/database.types";
 
-type TierInsert = Omit<Database["public"]["Tables"]["ticket_tiers"]["Insert"], "event_id">;
+type EventInsert = Database["public"]["Tables"]["events"]["Insert"];
+type TierInsertBase = Omit<Database["public"]["Tables"]["ticket_tiers"]["Insert"], "event_id">;
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
+type TierRow = Database["public"]["Tables"]["ticket_tiers"]["Row"];
 
 interface CreateEventBody {
   event: {
@@ -19,7 +22,7 @@ interface CreateEventBody {
     event_type?: string;
     capacity?: number;
   };
-  tiers: TierInsert[];
+  tiers: TierInsertBase[];
 }
 
 export async function POST(request: Request) {
@@ -33,8 +36,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify organizer role
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden: organizer role required" }, { status: 403 });
     }
@@ -50,33 +53,36 @@ export async function POST(request: Request) {
     }
 
     const slug = `${slugify(eventData.title)}-${shortCode().toLowerCase()}`;
-
     const service = await createServiceClient();
 
-    const { data: event, error: eventError } = await service
+    const eventInsert: EventInsert = {
+      organizer_id: user.id,
+      slug,
+      title: eventData.title,
+      tagline: eventData.tagline ?? null,
+      description: eventData.description ?? null,
+      venue: eventData.venue,
+      city: eventData.city,
+      starts_at: eventData.starts_at,
+      ends_at: eventData.ends_at ?? null,
+      cover_image_url: eventData.cover_image_url ?? null,
+      gate_open_at: eventData.gate_open_at ?? null,
+      event_type: eventData.event_type ?? null,
+      capacity: eventData.capacity ?? null,
+      status: "draft",
+    };
+
+    const { data: eventRaw, error: eventError } = await service
       .from("events")
-      .insert({
-        organizer_id: user.id,
-        slug,
-        title: eventData.title,
-        tagline: eventData.tagline ?? null,
-        description: eventData.description ?? null,
-        venue: eventData.venue,
-        city: eventData.city,
-        starts_at: eventData.starts_at,
-        ends_at: eventData.ends_at ?? null,
-        cover_image_url: eventData.cover_image_url ?? null,
-        gate_open_at: eventData.gate_open_at ?? null,
-        event_type: eventData.event_type ?? null,
-        capacity: eventData.capacity ?? null,
-        status: "draft",
-      })
+      .insert(eventInsert)
       .select()
       .single();
 
-    if (eventError || !event) {
+    if (eventError || !eventRaw) {
       return NextResponse.json({ error: eventError?.message ?? "Failed to create event" }, { status: 500 });
     }
+
+    const event = eventRaw as EventRow;
 
     const tierInserts = tiers.map((tier, i) => ({
       event_id: event.id,
@@ -89,18 +95,16 @@ export async function POST(request: Request) {
       position: tier.position ?? i,
     }));
 
-    const { data: createdTiers, error: tiersError } = await service
-      .from("ticket_tiers")
-      .insert(tierInserts)
-      .select();
+    const { data: tiersRaw, error: tiersError } = await service.from("ticket_tiers").insert(tierInserts).select();
 
     if (tiersError) {
-      // Attempt cleanup
       await service.from("events").delete().eq("id", event.id);
       return NextResponse.json({ error: tiersError.message }, { status: 500 });
     }
 
-    // Seed readiness checks for new event
+    const createdTiers = (tiersRaw ?? []) as TierRow[];
+
+    // Seed readiness checks
     const checkKeys = [
       "cover_image",
       "description",
@@ -150,21 +154,17 @@ export async function GET(request: Request) {
       .order("starts_at", { ascending: true })
       .range(offset, offset + pageSize - 1);
 
-    if (city) {
-      query = query.ilike("city", `%${city}%`);
-    }
-    if (type) {
-      query = query.eq("event_type", type);
-    }
+    if (city) query = query.ilike("city", `%${city}%`);
+    if (type) query = query.eq("event_type", type);
 
-    const { data: events, error, count } = await query;
+    const { data: eventsRaw, error, count } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({
-      events: events ?? [],
+      events: (eventsRaw ?? []) as Partial<EventRow>[],
       total: count ?? 0,
       page,
       pageSize,

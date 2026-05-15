@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
+
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
 interface BankPayoutBody {
   bankName: string;
@@ -18,7 +21,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden: organizer role required" }, { status: 403 });
     }
@@ -31,18 +35,12 @@ export async function POST(request: Request) {
     }
 
     const payoutInfo = { bankName, accountNumber, routingInfo };
-
     const service = await createServiceClient();
 
-    // Upsert promoter profile with payout info
     const { error } = await service
       .from("promoter_profiles")
       .upsert(
-        {
-          profile_id: user.id,
-          payout_info: payoutInfo,
-          social_links: {},
-        },
+        { profile_id: user.id, payout_info: payoutInfo, social_links: {} },
         { onConflict: "profile_id" },
       );
 
@@ -50,22 +48,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Mark payout_info_set readiness check for all organizer events
-    const { data: orgEvents } = await service
+    // Mark payout_info_set readiness check for all active organizer events
+    const { data: orgEventsRaw } = await service
       .from("events")
       .select("id")
       .eq("organizer_id", user.id)
       .in("status", ["draft", "published"]);
 
-    if (orgEvents?.length) {
-      for (const event of orgEvents) {
-        await service
-          .from("event_readiness_checks")
-          .upsert(
-            { event_id: event.id, check_key: "payout_info_set", done: true },
-            { onConflict: "event_id,check_key" },
-          );
-      }
+    const orgEvents = (orgEventsRaw ?? []) as Pick<EventRow, "id">[];
+
+    for (const event of orgEvents) {
+      await service.from("event_readiness_checks").upsert(
+        { event_id: event.id, check_key: "payout_info_set", done: true },
+        { onConflict: "event_id,check_key" },
+      );
     }
 
     return NextResponse.json({ saved: true });

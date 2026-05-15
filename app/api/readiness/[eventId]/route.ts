@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
+
+type CheckRow = Database["public"]["Tables"]["event_readiness_checks"]["Row"];
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -16,8 +19,6 @@ const ALL_CHECK_KEYS = [
   "gate_open_time_set",
 ] as const;
 
-type CheckKey = (typeof ALL_CHECK_KEYS)[number];
-
 export async function GET(_request: Request, { params }: RouteParams) {
   try {
     const { eventId } = await params;
@@ -30,17 +31,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Verify event ownership
-    const { data: event } = await supabase
+    const { data: eventRaw } = await supabase
       .from("events")
       .select("id, organizer_id")
       .eq("id", eventId)
       .single();
+    const event = eventRaw as { id: string; organizer_id: string } | null;
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -51,13 +53,14 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
     const service = await createServiceClient();
 
-    const { data: checks } = await service
+    const { data: checksRaw } = await service
       .from("event_readiness_checks")
       .select("id, check_key, done, updated_at")
       .eq("event_id", eventId);
 
-    // Compute score
-    const checkMap = new Map((checks ?? []).map((c) => [c.check_key, c]));
+    const checks = (checksRaw ?? []) as Pick<CheckRow, "check_key" | "done" | "updated_at">[];
+    const checkMap = new Map(checks.map((c) => [c.check_key, c]));
+
     const allChecks = ALL_CHECK_KEYS.map((key) => ({
       key,
       done: checkMap.get(key)?.done ?? false,
@@ -86,16 +89,18 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data: event } = await supabase
+    const { data: eventRaw } = await supabase
       .from("events")
       .select("id, organizer_id")
       .eq("id", eventId)
       .single();
+    const event = eventRaw as { id: string; organizer_id: string } | null;
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -111,7 +116,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "checkKey and done are required" }, { status: 400 });
     }
     if (!(ALL_CHECK_KEYS as readonly string[]).includes(checkKey)) {
-      return NextResponse.json({ error: `Invalid checkKey. Must be one of: ${ALL_CHECK_KEYS.join(", ")}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Invalid checkKey. Must be one of: ${ALL_CHECK_KEYS.join(", ")}` },
+        { status: 400 },
+      );
     }
 
     const service = await createServiceClient();
@@ -121,17 +129,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
       { onConflict: "event_id,check_key" },
     );
 
-    // Recompute score
-    const { data: checks } = await service
+    const { data: checksRaw } = await service
       .from("event_readiness_checks")
       .select("check_key, done")
       .eq("event_id", eventId);
 
-    const checkMap = new Map((checks ?? []).map((c) => [c.check_key, c]));
-    const allChecks = ALL_CHECK_KEYS.map((key) => ({
-      key,
-      done: checkMap.get(key)?.done ?? false,
-    }));
+    const checks = (checksRaw ?? []) as { check_key: string; done: boolean }[];
+    const checkMap = new Map(checks.map((c) => [c.check_key, c]));
+    const allChecks = ALL_CHECK_KEYS.map((key) => ({ key, done: checkMap.get(key)?.done ?? false }));
 
     const doneCount = allChecks.filter((c) => c.done).length;
     const score = Math.round((doneCount / ALL_CHECK_KEYS.length) * 100);

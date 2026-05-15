@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
+
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -17,16 +20,19 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data: event } = await supabase
+    const { data: eventRaw } = await supabase
       .from("events")
       .select("id, organizer_id, title, venue, starts_at, status")
       .eq("id", id)
       .single();
+
+    const event = eventRaw as Pick<EventRow, "id" | "organizer_id" | "title" | "venue" | "starts_at" | "status"> | null;
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -41,7 +47,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Cannot publish a cancelled event" }, { status: 409 });
     }
 
-    // Validate required fields
     const missing: string[] = [];
     if (!event.title) missing.push("title");
     if (!event.venue) missing.push("venue");
@@ -51,7 +56,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: `Missing required fields: ${missing.join(", ")}` }, { status: 422 });
     }
 
-    // Validate at least one tier
     const { count: tierCount } = await supabase
       .from("ticket_tiers")
       .select("id", { count: "exact", head: true })
@@ -62,7 +66,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     const service = await createServiceClient();
-    const { data: published, error } = await service
+    const { data: publishedRaw, error } = await service
       .from("events")
       .update({ status: "published" })
       .eq("id", id)
@@ -73,12 +77,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Mark readiness check
     await service
       .from("event_readiness_checks")
       .upsert({ event_id: id, check_key: "at_least_one_tier", done: true }, { onConflict: "event_id,check_key" });
 
-    return NextResponse.json({ event: published });
+    return NextResponse.json({ event: publishedRaw as EventRow });
   } catch (err) {
     console.error("[POST /api/events/[id]/publish]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
+import type { Database } from "@/lib/database.types";
+
+type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 
 interface GroupMemberInput {
   name: string;
@@ -33,16 +36,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "At least one member is required" }, { status: 400 });
     }
 
-    // Verify caller owns the order
-    const { data: order, error: orderError } = await supabase
+    const { data: orderRaw, error: orderError } = await supabase
       .from("orders")
       .select("id, buyer_id, event_id, status")
       .eq("id", orderId)
       .single();
 
-    if (orderError || !order) {
+    if (orderError || !orderRaw) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
+
+    const order = orderRaw as Pick<OrderRow, "id" | "buyer_id" | "event_id" | "status">;
+
     if (order.buyer_id !== user.id) {
       return NextResponse.json({ error: "Forbidden: not your order" }, { status: 403 });
     }
@@ -52,33 +57,30 @@ export async function POST(request: Request) {
 
     const service = await createServiceClient();
 
-    // Check if a group order already exists for this order
-    const { data: existing } = await service
+    const { data: existingRaw } = await service
       .from("group_orders")
       .select("id, share_token")
       .eq("order_id", orderId)
       .single();
 
-    if (existing) {
+    if (existingRaw) {
+      const existing = existingRaw as { id: string; share_token: string };
       const shareLink = `${env.NEXT_PUBLIC_SITE_URL}/groups/${existing.share_token}`;
       return NextResponse.json({ groupId: existing.id, shareLink, alreadyExists: true });
     }
 
-    // Create group order
-    const { data: groupOrder, error: groupError } = await service
+    const { data: groupOrderRaw, error: groupError } = await service
       .from("group_orders")
-      .insert({
-        order_id: orderId,
-        organizer_buyer_id: user.id,
-      })
+      .insert({ order_id: orderId, organizer_buyer_id: user.id })
       .select("id, share_token")
       .single();
 
-    if (groupError || !groupOrder) {
+    if (groupError || !groupOrderRaw) {
       return NextResponse.json({ error: groupError?.message ?? "Failed to create group" }, { status: 500 });
     }
 
-    // Insert members
+    const groupOrder = groupOrderRaw as { id: string; share_token: string };
+
     const memberInserts = members.map((m) => ({
       group_id: groupOrder.id,
       buyer_phone: m.phone,

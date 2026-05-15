@@ -3,6 +3,11 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { startCheckout } from "@/lib/payments";
 import { env } from "@/lib/env";
 import { shortCode } from "@/lib/utils";
+import type { Database } from "@/lib/database.types";
+
+type TierRow = Database["public"]["Tables"]["ticket_tiers"]["Row"];
+type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
+type OrderItemInsert = Database["public"]["Tables"]["order_items"]["Insert"];
 
 interface TierSelection {
   tierId: string;
@@ -38,7 +43,7 @@ export async function POST(request: Request) {
     }
 
     const body: CheckoutBody = await request.json();
-    const { eventId, tiers, buyerName, buyerPhone, buyerEmail, sendWhatsApp, groupMembers } = body;
+    const { eventId, tiers, buyerName, buyerPhone, buyerEmail, groupMembers } = body;
 
     if (!eventId || !tiers?.length || !buyerName || !buyerPhone) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -46,7 +51,7 @@ export async function POST(request: Request) {
 
     // Fetch all requested tiers
     const tierIds = tiers.map((t) => t.tierId);
-    const { data: tierRows, error: tierError } = await supabase
+    const { data: tierRowsRaw, error: tierError } = await supabase
       .from("ticket_tiers")
       .select("id, name, price_cents, quantity, quantity_sold, event_id")
       .in("id", tierIds);
@@ -54,7 +59,10 @@ export async function POST(request: Request) {
     if (tierError) {
       return NextResponse.json({ error: tierError.message }, { status: 500 });
     }
-    if (!tierRows || tierRows.length !== tierIds.length) {
+
+    const tierRows = (tierRowsRaw ?? []) as Pick<TierRow, "id" | "name" | "price_cents" | "quantity" | "quantity_sold" | "event_id">[];
+
+    if (tierRows.length !== tierIds.length) {
       return NextResponse.json({ error: "One or more tiers not found" }, { status: 404 });
     }
 
@@ -93,30 +101,34 @@ export async function POST(request: Request) {
     const service = await createServiceClient();
 
     // Insert order
-    const { data: order, error: orderError } = await service
+    const orderInsert: OrderInsert = {
+      buyer_id: user.id,
+      event_id: eventId,
+      subtotal_cents: subtotalCents,
+      fee_cents: feeCents,
+      total_cents: totalCents,
+      currency: "TTD",
+      status: "pending",
+      payment_provider: "mock",
+      buyer_name: buyerName,
+      buyer_phone: buyerPhone,
+      buyer_email: buyerEmail ?? null,
+    };
+
+    const { data: orderRaw, error: orderError } = await service
       .from("orders")
-      .insert({
-        buyer_id: user.id,
-        event_id: eventId,
-        subtotal_cents: subtotalCents,
-        fee_cents: feeCents,
-        total_cents: totalCents,
-        currency: "TTD",
-        status: "pending",
-        payment_provider: "mock",
-        buyer_name: buyerName,
-        buyer_phone: buyerPhone,
-        buyer_email: buyerEmail ?? null,
-      })
+      .insert(orderInsert)
       .select("id")
       .single();
 
-    if (orderError || !order) {
+    if (orderError || !orderRaw) {
       return NextResponse.json({ error: orderError?.message ?? "Failed to create order" }, { status: 500 });
     }
 
+    const order = orderRaw as { id: string };
+
     // Insert order items
-    const itemInserts = tiers.map((sel) => {
+    const itemInserts: OrderItemInsert[] = tiers.map((sel) => {
       const tier = tierRows.find((t) => t.id === sel.tierId)!;
       return {
         order_id: order.id,
@@ -132,22 +144,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: itemsError.message }, { status: 500 });
     }
 
-    // Reserve quantities atomically
+    // Reserve quantities atomically via RPC
     for (const sel of tiers) {
       const { error: incrError } = await (service.rpc as Function)(
         "increment_tier_quantity_sold",
         { tier_id: sel.tierId, qty: sel.qty },
       );
       if (incrError) {
-        // Best-effort rollback
         await service.from("orders").update({ status: "cancelled" }).eq("id", order.id);
-        // Attempt to decrement previously incremented tiers
         const prevIdx = tiers.indexOf(sel);
         for (let i = 0; i < prevIdx; i++) {
-          await (service.rpc as Function)(
-            "increment_tier_quantity_sold",
-            { tier_id: tiers[i].tierId, qty: -tiers[i].qty },
-          );
+          await (service.rpc as Function)("increment_tier_quantity_sold", {
+            tier_id: tiers[i].tierId,
+            qty: -tiers[i].qty,
+          });
         }
         const errMsg = (incrError as { message?: string }).message ?? "Quantity reservation failed";
         return NextResponse.json({ error: errMsg }, { status: 409 });
@@ -156,19 +166,16 @@ export async function POST(request: Request) {
 
     // Handle group order
     if (groupMembers?.length) {
-      const { data: groupOrder, error: groupError } = await service
+      const { data: groupOrderRaw, error: groupError } = await service
         .from("group_orders")
-        .insert({
-          order_id: order.id,
-          organizer_buyer_id: user.id,
-        })
+        .insert({ order_id: order.id, organizer_buyer_id: user.id })
         .select("id")
         .single();
 
-      if (groupError || !groupOrder) {
-        // Non-fatal: proceed with checkout, group linking failed
+      if (groupError || !groupOrderRaw) {
         console.error("Group order creation failed:", groupError?.message);
       } else {
+        const groupOrder = groupOrderRaw as { id: string };
         const memberInserts = groupMembers.map((m) => ({
           group_id: groupOrder.id,
           buyer_phone: m.phone,
@@ -185,19 +192,9 @@ export async function POST(request: Request) {
     // Build checkout line items
     const lineItems = tiers.map((sel) => {
       const tier = tierRows.find((t) => t.id === sel.tierId)!;
-      return {
-        name: tier.name,
-        unitAmountCents: tier.price_cents,
-        quantity: sel.qty,
-      };
+      return { name: tier.name, unitAmountCents: tier.price_cents, quantity: sel.qty };
     });
-
-    // Add platform fee as a line item
-    lineItems.push({
-      name: "WeFetePass Platform Fee (7.5%)",
-      unitAmountCents: feeCents,
-      quantity: 1,
-    });
+    lineItems.push({ name: "WeFetePass Platform Fee (7.5%)", unitAmountCents: feeCents, quantity: 1 });
 
     const siteUrl = env.NEXT_PUBLIC_SITE_URL;
 
@@ -211,7 +208,6 @@ export async function POST(request: Request) {
         customerEmail: buyerEmail,
       });
     } catch (checkoutError) {
-      // Rollback: cancel order and decrement quantities
       await service.from("orders").update({ status: "cancelled" }).eq("id", order.id);
       for (const sel of tiers) {
         await (service.rpc as Function)("increment_tier_quantity_sold", {
@@ -223,21 +219,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: msg }, { status: 500 });
     }
 
-    // Store payment reference and provider
     await service
       .from("orders")
-      .update({
-        payment_ref: checkoutResult.reference,
-        payment_provider: checkoutResult.provider,
-      })
+      .update({ payment_ref: checkoutResult.reference, payment_provider: checkoutResult.provider })
       .eq("id", order.id);
 
     return NextResponse.json(
-      {
-        orderId: order.id,
-        redirectUrl: checkoutResult.url,
-        provider: checkoutResult.provider,
-      },
+      { orderId: order.id, redirectUrl: checkoutResult.url, provider: checkoutResult.provider },
       { status: 201 },
     );
   } catch (err) {

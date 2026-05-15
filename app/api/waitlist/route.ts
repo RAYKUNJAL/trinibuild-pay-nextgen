@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
+
+type WaitlistInsert = Database["public"]["Tables"]["waitlist_entries"]["Insert"];
 
 interface WaitlistBody {
   phone: string;
@@ -17,7 +20,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "phone is required" }, { status: 400 });
     }
 
-    // Basic E.164-ish validation
     const cleanPhone = phone.replace(/\s+/g, "");
     if (!/^\+?\d{7,15}$/.test(cleanPhone)) {
       return NextResponse.json({ error: "Invalid phone number format" }, { status: 400 });
@@ -25,19 +27,17 @@ export async function POST(request: Request) {
 
     const service = await createServiceClient();
 
-    // Upsert: if same phone+event already exists, update name/city
-    const { error } = await service.from("waitlist_entries").upsert(
-      {
-        phone: cleanPhone,
-        name: name ?? null,
-        event_id: eventId ?? null,
-        city: city ?? null,
-      },
-      {
-        onConflict: eventId ? "phone,event_id" : undefined,
-        ignoreDuplicates: false,
-      },
-    );
+    const entry: WaitlistInsert = {
+      phone: cleanPhone,
+      name: name ?? null,
+      event_id: eventId ?? null,
+      city: city ?? null,
+    };
+
+    const { error } = await service.from("waitlist_entries").upsert(entry, {
+      onConflict: eventId ? "phone,event_id" : undefined,
+      ignoreDuplicates: false,
+    });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

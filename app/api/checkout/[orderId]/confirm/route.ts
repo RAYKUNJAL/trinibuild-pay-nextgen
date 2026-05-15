@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { shortCode } from "@/lib/utils";
 import { queuePassDelivery } from "@/lib/whatsapp";
+import type { Database } from "@/lib/database.types";
+
+type PassInsert = Database["public"]["Tables"]["passes"]["Insert"];
+type OrderRow = Pick<
+  Database["public"]["Tables"]["orders"]["Row"],
+  "id" | "buyer_id" | "event_id" | "status" | "buyer_phone" | "buyer_name"
+>;
+type OrderItemRow = Pick<Database["public"]["Tables"]["order_items"]["Row"], "tier_id" | "quantity">;
+type PassRow = Pick<Database["public"]["Tables"]["passes"]["Row"], "id" | "code" | "holder_name" | "status" | "tier_id">;
 
 interface RouteParams {
   params: Promise<{ orderId: string }>;
@@ -21,32 +30,33 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const service = await createServiceClient();
 
-    // Fetch order and verify ownership
-    const { data: order, error: orderError } = await service
+    const { data: orderRaw, error: orderError } = await service
       .from("orders")
       .select("id, buyer_id, event_id, status, buyer_phone, buyer_name")
       .eq("id", orderId)
       .single();
 
-    if (orderError || !order) {
+    if (orderError || !orderRaw) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
+
+    const order = orderRaw as OrderRow;
+
     if (order.buyer_id !== user.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (order.status === "paid") {
-      // Idempotent: return existing passes
-      const { data: existing } = await service
+      const { data: existingRaw } = await service
         .from("passes")
         .select("id, code, holder_name, status, tier_id")
         .eq("order_id", orderId);
-      return NextResponse.json({ passes: existing ?? [] });
+      const existing = (existingRaw ?? []) as PassRow[];
+      return NextResponse.json({ passes: existing });
     }
     if (order.status !== "pending") {
       return NextResponse.json({ error: `Order is ${order.status} and cannot be confirmed` }, { status: 409 });
     }
 
-    // Mark order paid
     const { error: updateError } = await service
       .from("orders")
       .update({ status: "paid" })
@@ -56,18 +66,18 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
-    // Fetch order items to generate passes
-    const { data: items, error: itemsError } = await service
+    const { data: itemsRaw, error: itemsError } = await service
       .from("order_items")
-      .select("id, tier_id, quantity")
+      .select("tier_id, quantity")
       .eq("order_id", orderId);
 
-    if (itemsError || !items) {
+    if (itemsError || !itemsRaw) {
       return NextResponse.json({ error: itemsError?.message ?? "Failed to fetch order items" }, { status: 500 });
     }
 
-    // Generate one pass per ticket
-    const passInserts = items.flatMap((item) =>
+    const items = itemsRaw as OrderItemRow[];
+
+    const passInserts: PassInsert[] = items.flatMap((item) =>
       Array.from({ length: item.quantity }, () => ({
         order_id: orderId,
         event_id: order.event_id,
@@ -78,16 +88,17 @@ export async function POST(_request: Request, { params }: RouteParams) {
       })),
     );
 
-    const { data: passes, error: passError } = await service
+    const { data: passesRaw, error: passError } = await service
       .from("passes")
       .insert(passInserts)
       .select("id, code, holder_name, status, tier_id");
 
-    if (passError || !passes) {
+    if (passError || !passesRaw) {
       return NextResponse.json({ error: passError?.message ?? "Failed to generate passes" }, { status: 500 });
     }
 
-    // Queue WhatsApp delivery if buyer has a phone number
+    const passes = passesRaw as PassRow[];
+
     if (order.buyer_phone) {
       for (const pass of passes) {
         try {

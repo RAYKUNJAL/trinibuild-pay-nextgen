@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/database.types";
+
+type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -37,16 +40,19 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data: event } = await supabase
+    const { data: eventRaw } = await supabase
       .from("events")
       .select("id, organizer_id, title, starts_at, ends_at")
       .eq("id", eventId)
       .single();
+
+    const event = eventRaw as Pick<EventRow, "id" | "organizer_id" | "title" | "starts_at" | "ends_at"> | null;
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -57,20 +63,17 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const service = await createServiceClient();
 
-    // Total passes for event
     const { count: totalPasses } = await service
       .from("passes")
       .select("id", { count: "exact", head: true })
       .eq("event_id", eventId);
 
-    // Scanned (used) passes
     const { count: scannedPasses } = await service
       .from("passes")
       .select("id", { count: "exact", head: true })
       .eq("event_id", eventId)
       .eq("status", "used");
 
-    // No-show: still 'valid' after event ended
     const now = new Date().toISOString();
     const eventEnded = event.ends_at ? event.ends_at < now : event.starts_at < now;
     let noShowCount = 0;
@@ -87,15 +90,21 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const scanned = scannedPasses ?? 0;
     const attendancePct = total > 0 ? Math.round((scanned / total) * 100) : 0;
 
-    // Revenue by tier: join orders (paid) + order_items + ticket_tiers
-    const { data: orderItems } = await service
+    // Revenue by tier: fetch paid order items for this event
+    const { data: orderItemsRaw } = await service
       .from("order_items")
       .select("tier_id, quantity, unit_price_cents, orders!inner(status, event_id)")
-      .eq("orders.event_id", eventId)
-      .eq("orders.status", "paid");
+      .eq("orders.event_id" as string, eventId)
+      .eq("orders.status" as string, "paid");
+
+    const orderItems = (orderItemsRaw ?? []) as Array<{
+      tier_id: string;
+      quantity: number;
+      unit_price_cents: number;
+    }>;
 
     const tierRevMap = new Map<string, { quantity: number; revenue: number }>();
-    for (const item of orderItems ?? []) {
+    for (const item of orderItems) {
       const existing = tierRevMap.get(item.tier_id) ?? { quantity: 0, revenue: 0 };
       tierRevMap.set(item.tier_id, {
         quantity: existing.quantity + item.quantity,
@@ -103,15 +112,14 @@ export async function POST(_request: Request, { params }: RouteParams) {
       });
     }
 
-    // Fetch tier names
     const tierIds = Array.from(tierRevMap.keys());
-    let tierNameMap = new Map<string, string>();
+    const tierNameMap = new Map<string, string>();
     if (tierIds.length > 0) {
-      const { data: tiers } = await service
+      const { data: tiersRaw } = await service
         .from("ticket_tiers")
         .select("id, name")
         .in("id", tierIds);
-      for (const tier of tiers ?? []) {
+      for (const tier of (tiersRaw ?? []) as { id: string; name: string }[]) {
         tierNameMap.set(tier.id, tier.name);
       }
     }
@@ -125,15 +133,16 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const totalRevenueCents = revenueByTier.reduce((sum, t) => sum + t.revenue_cents, 0);
 
-    // Peak entry hour: hour UTC with most scan_events result='valid'
-    const { data: scanRows } = await service
+    // Peak entry hour
+    const { data: scanRowsRaw } = await service
       .from("scan_events")
       .select("scanned_at")
       .eq("event_id", eventId)
       .eq("result", "valid");
 
+    const scanRows = (scanRowsRaw ?? []) as { scanned_at: string }[];
     const hourCounts = new Map<number, number>();
-    for (const row of scanRows ?? []) {
+    for (const row of scanRows) {
       const hour = new Date(row.scanned_at).getUTCHours();
       hourCounts.set(hour, (hourCounts.get(hour) ?? 0) + 1);
     }

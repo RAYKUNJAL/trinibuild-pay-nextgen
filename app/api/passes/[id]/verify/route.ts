@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { verifyPassToken } from "@/lib/pass-token";
+import type { Database } from "@/lib/database.types";
+
+type PassRow = Database["public"]["Tables"]["passes"]["Row"];
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -24,8 +27,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only organizers and admins can verify passes
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden: scanner role required" }, { status: 403 });
     }
@@ -41,16 +44,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const service = await createServiceClient();
-
     let resolvedPassId = passId;
 
-    // If token provided, verify JWT and extract passId
     if (token) {
       try {
         const claims = await verifyPassToken(token);
         resolvedPassId = claims.passId;
 
-        // Early check: token event must match requested eventId
         if (claims.eventId !== eventId) {
           await service.from("scan_events").insert({
             pass_id: null,
@@ -71,8 +71,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    // Look up pass — by code if provided, otherwise by ID
-    let passQuery = service.from("passes").select("id, event_id, status, used_at, holder_name, tier_id, code");
+    let passQuery = service
+      .from("passes")
+      .select("id, event_id, status, used_at, holder_name, tier_id, code");
 
     if (code) {
       passQuery = passQuery.eq("code", code);
@@ -80,9 +81,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       passQuery = passQuery.eq("id", resolvedPassId);
     }
 
-    const { data: pass, error: passError } = await passQuery.single();
+    const { data: passRaw, error: passError } = await passQuery.single();
 
-    if (passError || !pass) {
+    if (passError || !passRaw) {
       await service.from("scan_events").insert({
         pass_id: null,
         scanner_id: user.id,
@@ -92,7 +93,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ result: "invalid" }, { status: 200 });
     }
 
-    // Check event match
+    const pass = passRaw as Pick<PassRow, "id" | "event_id" | "status" | "used_at" | "holder_name" | "tier_id" | "code">;
+
     if (pass.event_id !== eventId) {
       await service.from("scan_events").insert({
         pass_id: pass.id,
@@ -103,7 +105,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ result: "wrong_event" }, { status: 200 });
     }
 
-    // Check voided
     if (pass.status === "voided") {
       await service.from("scan_events").insert({
         pass_id: pass.id,
@@ -114,7 +115,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ result: "invalid" }, { status: 200 });
     }
 
-    // Check already used
     if (pass.status === "used") {
       await service.from("scan_events").insert({
         pass_id: pass.id,
@@ -125,21 +125,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ result: "duplicate", usedAt: pass.used_at }, { status: 200 });
     }
 
-    // Fetch tier name for response
-    const { data: tier } = await service
+    const { data: tierRaw } = await service
       .from("ticket_tiers")
       .select("name")
       .eq("id", pass.tier_id)
       .single();
+    const tier = tierRaw as { name: string } | null;
 
-    // Mark pass as used
     const now = new Date().toISOString();
     await service
       .from("passes")
       .update({ status: "used", used_at: now, used_by: user.id })
       .eq("id", pass.id);
 
-    // Record scan event
     await service.from("scan_events").insert({
       pass_id: pass.id,
       scanner_id: user.id,

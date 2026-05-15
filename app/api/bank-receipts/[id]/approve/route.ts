@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { shortCode } from "@/lib/utils";
 import { queuePassDelivery } from "@/lib/whatsapp";
+import type { Database } from "@/lib/database.types";
+
+type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
+type PassInsert = Database["public"]["Tables"]["passes"]["Insert"];
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -19,34 +23,48 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    const profile = profileRaw as { role: string } | null;
     if (!profile || !["organizer", "admin"].includes(profile.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const service = await createServiceClient();
 
-    // Fetch receipt + related order
-    const { data: receipt, error: receiptError } = await service
+    // Fetch receipt with its order's event_id
+    const { data: receiptRaw, error: receiptError } = await service
       .from("bank_receipts")
-      .select("id, order_id, status, orders!inner(id, buyer_id, event_id, status, buyer_name, buyer_phone, buyer_email)")
+      .select("id, order_id, status")
       .eq("id", receiptId)
       .single();
 
-    if (receiptError || !receipt) {
+    if (receiptError || !receiptRaw) {
       return NextResponse.json({ error: "Receipt not found" }, { status: 404 });
     }
 
-    const order = Array.isArray(receipt.orders) ? receipt.orders[0] : receipt.orders;
+    const receipt = receiptRaw as { id: string; order_id: string; status: string };
+
+    // Fetch the order
+    const { data: orderRaw, error: orderError } = await service
+      .from("orders")
+      .select("id, buyer_id, event_id, status, buyer_name, buyer_phone")
+      .eq("id", receipt.order_id)
+      .single();
+
+    if (orderError || !orderRaw) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    const order = orderRaw as Pick<OrderRow, "id" | "buyer_id" | "event_id" | "status" | "buyer_name" | "buyer_phone">;
 
     // Verify organizer owns the event
     if (profile.role !== "admin") {
-      const { data: event } = await service
+      const { data: eventRaw } = await service
         .from("events")
         .select("organizer_id")
         .eq("id", order.event_id)
         .single();
-
+      const event = eventRaw as { organizer_id: string } | null;
       if (!event || event.organizer_id !== user.id) {
         return NextResponse.json({ error: "Forbidden: not your event" }, { status: 403 });
       }
@@ -61,23 +79,26 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const now = new Date().toISOString();
 
-    // Approve receipt
     await service
       .from("bank_receipts")
       .update({ status: "approved", reviewed_by: user.id, reviewed_at: now })
       .eq("id", receiptId);
 
-    // If order is still pending, generate passes
     if (order.status !== "paid") {
-      await service.from("orders").update({ status: "paid", payment_provider: "bank_receipt" }).eq("id", order.id);
+      await service
+        .from("orders")
+        .update({ status: "paid", payment_provider: "bank_receipt" })
+        .eq("id", order.id);
 
-      const { data: items } = await service
+      const { data: itemsRaw } = await service
         .from("order_items")
         .select("tier_id, quantity")
         .eq("order_id", order.id);
 
-      if (items?.length) {
-        const passInserts = items.flatMap((item) =>
+      const items = (itemsRaw ?? []) as { tier_id: string; quantity: number }[];
+
+      if (items.length) {
+        const passInserts: PassInsert[] = items.flatMap((item) =>
           Array.from({ length: item.quantity }, () => ({
             order_id: order.id,
             event_id: order.event_id,
@@ -88,7 +109,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
           })),
         );
 
-        const { data: passes, error: passError } = await service
+        const { data: passesRaw, error: passError } = await service
           .from("passes")
           .insert(passInserts)
           .select("id");
@@ -97,7 +118,9 @@ export async function POST(_request: Request, { params }: RouteParams) {
           return NextResponse.json({ error: passError.message }, { status: 500 });
         }
 
-        if (order.buyer_phone && passes) {
+        const passes = (passesRaw ?? []) as { id: string }[];
+
+        if (order.buyer_phone) {
           for (const pass of passes) {
             try {
               await queuePassDelivery(pass.id, order.buyer_phone);
@@ -107,7 +130,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
           }
         }
 
-        return NextResponse.json({ approved: true, passesGenerated: passes?.length ?? 0 });
+        return NextResponse.json({ approved: true, passesGenerated: passes.length });
       }
     }
 

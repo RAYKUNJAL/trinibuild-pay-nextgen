@@ -4,35 +4,44 @@ import { stripe } from "@/lib/payments";
 import { env, stripeConfigured } from "@/lib/env";
 import { shortCode } from "@/lib/utils";
 import { queuePassDelivery } from "@/lib/whatsapp";
+import type { Database } from "@/lib/database.types";
 
 export const runtime = "nodejs";
-
-// Next.js: disable body parser so we can read the raw bytes for Stripe sig verification
 export const dynamic = "force-dynamic";
+
+type OrderRow = Pick<
+  Database["public"]["Tables"]["orders"]["Row"],
+  "id" | "buyer_id" | "event_id" | "status" | "buyer_phone" | "buyer_name"
+>;
+type OrderItemRow = Pick<Database["public"]["Tables"]["order_items"]["Row"], "tier_id" | "quantity">;
+type PassInsert = Database["public"]["Tables"]["passes"]["Insert"];
 
 async function generatePassesForOrder(
   service: Awaited<ReturnType<typeof createServiceClient>>,
   orderId: string,
 ): Promise<void> {
-  const { data: order } = await service
+  const { data: orderRaw } = await service
     .from("orders")
     .select("id, buyer_id, event_id, status, buyer_phone, buyer_name")
     .eq("id", orderId)
     .single();
 
-  if (!order) throw new Error(`Order ${orderId} not found`);
-  if (order.status === "paid") return; // Already processed (idempotent)
+  if (!orderRaw) throw new Error(`Order ${orderId} not found`);
+  const order = orderRaw as OrderRow;
+
+  if (order.status === "paid") return;
 
   await service.from("orders").update({ status: "paid" }).eq("id", orderId);
 
-  const { data: items } = await service
+  const { data: itemsRaw } = await service
     .from("order_items")
     .select("tier_id, quantity")
     .eq("order_id", orderId);
 
-  if (!items?.length) return;
+  const items = (itemsRaw ?? []) as OrderItemRow[];
+  if (!items.length) return;
 
-  const passInserts = items.flatMap((item) =>
+  const passInserts: PassInsert[] = items.flatMap((item) =>
     Array.from({ length: item.quantity }, () => ({
       order_id: orderId,
       event_id: order.event_id,
@@ -43,14 +52,16 @@ async function generatePassesForOrder(
     })),
   );
 
-  const { data: passes, error: passError } = await service
+  const { data: passesRaw, error: passError } = await service
     .from("passes")
     .insert(passInserts)
     .select("id");
 
   if (passError) throw new Error(passError.message);
 
-  if (order.buyer_phone && passes) {
+  const passes = (passesRaw ?? []) as { id: string }[];
+
+  if (order.buyer_phone) {
     for (const pass of passes) {
       try {
         await queuePassDelivery(pass.id, order.buyer_phone);
