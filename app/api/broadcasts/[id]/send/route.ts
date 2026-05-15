@@ -1,12 +1,26 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { sendTicketViaWhatsApp } from "@/lib/whatsapp";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Cast helper — used for tables not yet in database.types.ts (added in migration 0006)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-interface OrderPhoneRow {
+interface BroadcastRow {
+  id: string;
+  organizer_id: string;
+  event_id: string | null;
+  tier_ids: string[] | null;
+  body: string;
+  channel: string;
+  status: string;
+}
+
+interface OrderRow {
   id: string;
   buyer_phone: string | null;
   buyer_name: string | null;
@@ -24,7 +38,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // Verify organizer owns this broadcast
-    const { data: bcRaw, error: bcErr } = await supabase
+    const { data: bcRaw, error: bcErr } = await raw(supabase)
       .from("broadcasts")
       .select("id, organizer_id, event_id, tier_ids, body, channel, status")
       .eq("id", broadcastId)
@@ -35,23 +49,25 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Broadcast not found" }, { status: 404 });
     }
 
-    if (bcRaw.status === "sent" || bcRaw.status === "sending") {
+    const bc = bcRaw as BroadcastRow;
+
+    if (bc.status === "sent" || bc.status === "sending") {
       return NextResponse.json({ error: "Broadcast already sent or sending" }, { status: 409 });
     }
 
     const service = await createServiceClient();
 
     // Mark as sending
-    await service
+    await raw(service)
       .from("broadcasts")
       .update({ status: "sending" })
       .eq("id", broadcastId);
 
     // Gather audience
-    const eventId = bcRaw.event_id as string | null;
-    const tierIds = (bcRaw.tier_ids as string[] | null) ?? [];
+    const eventId = bc.event_id;
+    const tierIds = bc.tier_ids ?? [];
 
-    let orders: OrderPhoneRow[] = [];
+    let orders: OrderRow[] = [];
 
     if (eventId) {
       let ordersQuery = service
@@ -69,19 +85,19 @@ export async function POST(_request: Request, { params }: RouteParams) {
         const orderIds = (tierOrderIds ?? []).map((r) => r.order_id);
         if (orderIds.length > 0) {
           ordersQuery = ordersQuery.in("id", orderIds);
-        } else {
-          // No matching orders
-          orders = [];
+          const { data } = await ordersQuery;
+          orders = (data ?? []) as OrderRow[];
         }
+        // else orders stays empty
+      } else {
+        const { data } = await ordersQuery;
+        orders = (data ?? []) as OrderRow[];
       }
-
-      const { data } = await ordersQuery;
-      orders = (data ?? []) as OrderPhoneRow[];
     }
 
     // Dedupe by phone
     const seen = new Set<string>();
-    const uniqueOrders: OrderPhoneRow[] = [];
+    const uniqueOrders: OrderRow[] = [];
     for (const o of orders) {
       if (o.buyer_phone && !seen.has(o.buyer_phone)) {
         seen.add(o.buyer_phone);
@@ -89,7 +105,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       }
     }
 
-    // Fetch event info for message context
+    // Fetch event info for merge fields
     let eventTitle = "your event";
     if (eventId) {
       const { data: ev } = await service
@@ -97,15 +113,16 @@ export async function POST(_request: Request, { params }: RouteParams) {
         .select("title")
         .eq("id", eventId)
         .maybeSingle();
-      if (ev) eventTitle = ev.title;
+      if (ev) eventTitle = (ev as { title: string }).title;
     }
 
-    const messageBody = bcRaw.body as string;
-    const channel = bcRaw.channel as string;
+    const messageBody = bc.body;
+    const channel = bc.channel;
 
     let sentCount = 0;
     let failedCount = 0;
-    const recipientRows: {
+
+    interface RecipientInsert {
       broadcast_id: string;
       buyer_id: string;
       phone: string;
@@ -113,13 +130,19 @@ export async function POST(_request: Request, { params }: RouteParams) {
       delivered: boolean;
       delivered_at: string | null;
       error: string | null;
-    }[] = [];
+    }
+
+    const recipientRows: RecipientInsert[] = [];
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_WA_FROM;
+    const twilioConfigured = !!(accountSid && authToken && fromNumber);
 
     for (const order of uniqueOrders) {
       const phone = order.buyer_phone!;
       const name = order.buyer_name ?? "Fete-goer";
 
-      // Replace merge fields
       const resolvedBody = messageBody
         .replace(/\{\{name\}\}/g, name)
         .replace(/\{\{event\}\}/g, eventTitle);
@@ -127,87 +150,46 @@ export async function POST(_request: Request, { params }: RouteParams) {
       let delivered = false;
       let deliveryError: string | null = null;
 
-      if (channel === "whatsapp" || channel === "both") {
-        const result = await sendTicketViaWhatsApp({
-          to: phone,
-          passerName: name,
-          eventTitle,
-          eventDate: "",
-          venue: "",
-          tierName: "",
-          passCode: "",
-          // Override the standard ticket text with our custom body by using the body directly
-          // We use a custom message body path — the sendTicketViaWhatsApp builds its own text,
-          // so for broadcasts we call Twilio directly with the custom body.
-        });
-        // sendTicketViaWhatsApp builds a ticket-specific text; for broadcasts
-        // we send the composed body via a direct Twilio call instead.
-        // Fall through to direct call below.
-        void result; // acknowledged
-      }
-
-      // Direct Twilio call for broadcast body
-      try {
-        const accountSid = process.env.TWILIO_ACCOUNT_SID;
-        const authToken = process.env.TWILIO_AUTH_TOKEN;
-        const fromNumber = process.env.TWILIO_WA_FROM;
-
-        if (!accountSid || !authToken || !fromNumber) {
-          // Mock mode
-          console.log(`[broadcasts/send] mock → ${phone}: ${resolvedBody.slice(0, 80)}`);
-          delivered = true;
-        } else {
-          const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-          const formBody = new URLSearchParams({
-            From: channel === "sms" ? fromNumber : `whatsapp:${fromNumber}`,
-            To: channel === "sms" ? phone : `whatsapp:${phone}`,
-            Body: resolvedBody,
-          });
+      if (!twilioConfigured) {
+        // Mock mode
+        console.log(`[broadcasts/send] mock → ${phone}: ${resolvedBody.slice(0, 80)}`);
+        delivered = true;
+      } else {
+        try {
+          const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
           const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-          const res = await fetch(url, {
-            method: "POST",
-            headers: {
-              Authorization: `Basic ${credentials}`,
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: formBody.toString(),
-          });
-          if (res.ok) {
-            delivered = true;
-          } else {
-            const errText = await res.text();
-            deliveryError = `Twilio ${res.status}: ${errText.slice(0, 200)}`;
-          }
 
-          // If channel is "both", also send SMS
-          if (channel === "both" && delivered) {
-            const smsForm = new URLSearchParams({
-              From: fromNumber,
-              To: phone,
-              Body: resolvedBody,
-            });
-            const smsRes = await fetch(url, {
+          const sendVia = async (from: string, to: string) => {
+            const formBody = new URLSearchParams({ From: from, To: to, Body: resolvedBody });
+            const res = await fetch(twilioUrl, {
               method: "POST",
               headers: {
                 Authorization: `Basic ${credentials}`,
                 "Content-Type": "application/x-www-form-urlencoded",
               },
-              body: smsForm.toString(),
+              body: formBody.toString(),
             });
-            if (!smsRes.ok) {
-              console.warn(`[broadcasts/send] SMS failed for ${phone}`);
+            if (!res.ok) {
+              const errText = await res.text();
+              throw new Error(`Twilio ${res.status}: ${errText.slice(0, 200)}`);
             }
+          };
+
+          if (channel === "whatsapp" || channel === "both") {
+            await sendVia(`whatsapp:${fromNumber}`, `whatsapp:${phone}`);
+            delivered = true;
           }
+          if (channel === "sms" || channel === "both") {
+            await sendVia(fromNumber, phone);
+            delivered = true;
+          }
+        } catch (e) {
+          deliveryError = e instanceof Error ? e.message : String(e);
         }
-      } catch (e) {
-        deliveryError = e instanceof Error ? e.message : String(e);
       }
 
-      if (delivered) {
-        sentCount++;
-      } else {
-        failedCount++;
-      }
+      if (delivered) sentCount++;
+      else failedCount++;
 
       recipientRows.push({
         broadcast_id: broadcastId,
@@ -222,11 +204,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     // Persist recipients
     if (recipientRows.length > 0) {
-      await service.from("broadcast_recipients").insert(recipientRows);
+      await raw(service).from("broadcast_recipients").insert(recipientRows);
     }
 
     // Update broadcast status
-    await service
+    await raw(service)
       .from("broadcasts")
       .update({
         status: "sent",
@@ -240,14 +222,10 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ sent: sentCount, failed: failedCount });
   } catch (err) {
     console.error("[POST /api/broadcasts/[id]/send]", err);
-    // Mark as failed if we errored out
     try {
       const { id: broadcastId } = await params;
       const svc = await createServiceClient();
-      await svc
-        .from("broadcasts")
-        .update({ status: "failed" })
-        .eq("id", broadcastId);
+      await raw(svc).from("broadcasts").update({ status: "failed" }).eq("id", broadcastId);
     } catch { /* best effort */ }
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });
   }

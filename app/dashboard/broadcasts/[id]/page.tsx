@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, XCircle, Send, Clock } from "lucide-react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +12,39 @@ import { getCurrentPromoter } from "../../_lib/queries";
 
 export const metadata = { title: "Broadcast Detail — WeFetePass" };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
+
 const channelLabel: Record<string, string> = {
   whatsapp: "WhatsApp",
   sms: "SMS",
   both: "WhatsApp + SMS",
 };
+
+interface BroadcastRow {
+  id: string;
+  organizer_id: string;
+  event_id: string | null;
+  channel: string;
+  status: string;
+  recipient_count: number | null;
+  sent_count: number | null;
+  failed_count: number | null;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  created_at: string;
+  body: string;
+  subject: string | null;
+}
+
+interface RecipientRow {
+  id: string;
+  phone: string;
+  buyer_name: string | null;
+  delivered: boolean;
+  delivered_at: string | null;
+  error: string | null;
+}
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -27,34 +56,37 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
   if (!promoter?.user) return null;
 
   const supabase = await createClient();
-  const { data: broadcast } = await supabase
+  const { data: broadcastRaw } = await raw(supabase)
     .from("broadcasts")
     .select("*")
     .eq("id", id)
     .eq("organizer_id", promoter.user.id)
     .maybeSingle();
 
-  if (!broadcast) notFound();
+  if (!broadcastRaw) notFound();
 
-  const { data: recipients } = await supabase
+  const broadcast = broadcastRaw as BroadcastRow;
+
+  const { data: recipientsRaw } = await raw(supabase)
     .from("broadcast_recipients")
     .select("id, phone, buyer_name, delivered, delivered_at, error")
     .eq("broadcast_id", id)
     .order("delivered", { ascending: false });
+
+  const recipients = (recipientsRaw ?? []) as RecipientRow[];
 
   let eventTitle: string | null = null;
   if (broadcast.event_id) {
     const { data: ev } = await supabase
       .from("events")
       .select("title")
-      .eq("id", broadcast.event_id as string)
+      .eq("id", broadcast.event_id)
       .maybeSingle();
-    eventTitle = ev?.title ?? null;
+    eventTitle = (ev as { title: string } | null)?.title ?? null;
   }
 
-  const recipientList = recipients ?? [];
-  const deliveredCount = recipientList.filter((r) => r.delivered).length;
-  const failedCount = recipientList.filter((r) => !r.delivered && r.error).length;
+  const deliveredCount = recipients.filter((r) => r.delivered).length;
+  const failedCount = recipients.filter((r) => !r.delivered && r.error).length;
 
   return (
     <div className="space-y-6">
@@ -71,16 +103,22 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
             Broadcast Detail
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Created {formatDateTime(broadcast.created_at as string)}
+            Created {formatDateTime(broadcast.created_at)}
           </p>
         </div>
         <Badge
-          variant={broadcast.status === "sent" ? "default" : broadcast.status === "failed" ? "destructive" : "secondary"}
+          variant={
+            broadcast.status === "sent"
+              ? "default"
+              : broadcast.status === "failed"
+                ? "destructive"
+                : "secondary"
+          }
           className="h-fit text-sm capitalize"
         >
           {broadcast.status === "sent" && <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
           {broadcast.status === "scheduled" && <Clock className="mr-1.5 h-3.5 w-3.5" />}
-          {broadcast.status as string}
+          {broadcast.status}
         </Badge>
       </div>
 
@@ -94,19 +132,19 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
             </CardHeader>
             <CardContent>
               <pre className="whitespace-pre-wrap rounded-lg bg-muted/40 p-4 text-sm leading-relaxed font-sans">
-                {broadcast.body as string}
+                {broadcast.body}
               </pre>
             </CardContent>
           </Card>
 
           {/* Recipients */}
-          {recipientList.length > 0 && (
+          {recipients.length > 0 && (
             <Card className="border-border/60 overflow-hidden">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
                   Recipients
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    ({recipientList.length} total)
+                    ({recipients.length} total)
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -122,7 +160,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {recipientList.map((r) => (
+                    {recipients.map((r) => (
                       <tr key={r.id} className="border-t border-border/60">
                         <td className="px-4 py-2.5 font-medium">{r.buyer_name ?? "—"}</td>
                         <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
@@ -144,7 +182,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
                           )}
                         </td>
                         <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                          {r.delivered_at ? formatDateTime(r.delivered_at as string) : "—"}
+                          {r.delivered_at ? formatDateTime(r.delivered_at) : "—"}
                         </td>
                         <td className="px-4 py-2.5 text-xs text-destructive max-w-xs truncate">
                           {r.error ?? "—"}
@@ -173,7 +211,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Channel</span>
                 <span className="font-medium">
-                  {channelLabel[broadcast.channel as string] ?? broadcast.channel as string}
+                  {channelLabel[broadcast.channel] ?? broadcast.channel}
                 </span>
               </div>
               <Separator />
@@ -190,20 +228,20 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Delivered</span>
                     <span className="font-medium text-emerald-600 tabular-nums">
-                      {(broadcast.sent_count as number | null) ?? deliveredCount}
+                      {broadcast.sent_count ?? deliveredCount}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Failed</span>
                     <span className="font-medium text-red-600 tabular-nums">
-                      {(broadcast.failed_count as number | null) ?? failedCount}
+                      {broadcast.failed_count ?? failedCount}
                     </span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Sent at</span>
                     <span className="font-medium text-xs text-right">
-                      {broadcast.sent_at ? formatDateTime(broadcast.sent_at as string) : "—"}
+                      {broadcast.sent_at ? formatDateTime(broadcast.sent_at) : "—"}
                     </span>
                   </div>
                 </>
@@ -215,7 +253,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Scheduled for</span>
                     <span className="font-medium text-xs text-right">
-                      {formatDateTime(broadcast.scheduled_for as string)}
+                      {formatDateTime(broadcast.scheduled_for)}
                     </span>
                   </div>
                 </>

@@ -1,9 +1,25 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { shortCode } from "@/lib/utils";
+
+// Cast helper — used for tables not yet in database.types.ts (added in migration 0006)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
+}
+
+interface CompRow {
+  id: string;
+  holder_name: string;
+  holder_phone: string | null;
+  reason: string;
+  issued_at: string;
+  tier_id: string;
+  pass_id: string | null;
+  notes: string | null;
 }
 
 export async function GET(_request: Request, { params }: RouteParams) {
@@ -26,7 +42,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found or access denied" }, { status: 404 });
     }
 
-    const { data: comps, error } = await supabase
+    const { data: comps, error } = await raw(supabase)
       .from("comp_tickets")
       .select("id, holder_name, holder_phone, reason, issued_at, tier_id, pass_id, notes")
       .eq("event_id", eventId)
@@ -34,7 +50,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ comps: comps ?? [] });
+    return NextResponse.json({ comps: (comps ?? []) as CompRow[] });
   } catch (err) {
     console.error("[GET /api/door/[eventId]/comps]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });
@@ -99,7 +115,6 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Generate a unique pass code
     let code = shortCode();
-    // Ensure uniqueness
     for (let i = 0; i < 5; i++) {
       const { data: existing } = await service
         .from("passes")
@@ -111,8 +126,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       code = shortCode();
     }
 
-    // Create a synthetic order for the comp (we need an order_id for passes FK)
-    // We'll use a special comp order
+    // Create a comp order (passes require an order_id FK)
     const { data: compOrder, error: orderErr } = await service
       .from("orders")
       .insert({
@@ -134,11 +148,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: orderErr?.message ?? "Failed to create comp order" }, { status: 500 });
     }
 
+    const co = compOrder as { id: string };
+
     // Create the pass
     const { data: pass, error: passErr } = await service
       .from("passes")
       .insert({
-        order_id: compOrder.id,
+        order_id: co.id,
         event_id: eventId,
         tier_id: tierId,
         holder_name: holderName,
@@ -152,11 +168,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: passErr?.message ?? "Failed to create pass" }, { status: 500 });
     }
 
+    const p = pass as { id: string; code: string };
+
     // Insert comp_ticket record
-    const { error: compErr } = await service.from("comp_tickets").insert({
+    const { error: compErr } = await raw(service).from("comp_tickets").insert({
       event_id: eventId,
       organizer_id: user.id,
-      pass_id: pass.id,
+      pass_id: p.id,
       holder_name: holderName,
       holder_phone: holderPhone ?? null,
       tier_id: tierId,
@@ -167,10 +185,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     if (compErr) {
       console.error("[comps] comp_ticket insert error:", compErr);
-      // Non-fatal — pass was already created
+      // Non-fatal — pass already created
     }
 
-    return NextResponse.json({ passId: pass.id, code: pass.code });
+    return NextResponse.json({ passId: p.id, code: p.code });
   } catch (err) {
     console.error("[POST /api/door/[eventId]/comps]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });

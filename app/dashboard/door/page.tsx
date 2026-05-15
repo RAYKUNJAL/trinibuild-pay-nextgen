@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DoorOpen, Users, Gift, DollarSign, Calendar } from "lucide-react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,9 @@ import { getCurrentPromoter, listPromoterEvents } from "../_lib/queries";
 import { PageHeader } from "../_components/page-header";
 
 export const metadata = { title: "Door Ops — WeFetePass" };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
 
 export default async function DoorOpsPage() {
   const promoter = await getCurrentPromoter();
@@ -23,7 +27,7 @@ export default async function DoorOpsPage() {
   // List upcoming/active events
   const events = await listPromoterEvents(promoter.user.id);
   const upcomingEvents = events.filter(
-    (e) => e.status !== "cancelled" && (e.ends_at ? e.ends_at > now : e.starts_at > now || true),
+    (e) => e.status !== "cancelled" && (e.ends_at ? e.ends_at > now : true),
   );
 
   // Summary stats
@@ -41,33 +45,32 @@ export default async function DoorOpsPage() {
       .gte("scanned_at", todayStart.toISOString());
     totalCheckInsToday = checkinCount ?? 0;
 
-    const { count: compCount } = await supabase
+    const { count: compCount } = await raw(supabase)
       .from("comp_tickets")
       .select("id", { count: "exact", head: true })
       .eq("organizer_id", promoter.user.id);
     totalCompsIssued = compCount ?? 0;
 
-    const { data: doorSalesRows } = await supabase
+    const { data: doorSalesRows } = await raw(supabase)
       .from("door_sales")
       .select("amount_collected_cents")
       .eq("organizer_id", promoter.user.id);
-    totalDoorSalesCents = (doorSalesRows ?? []).reduce(
+    totalDoorSalesCents = ((doorSalesRows ?? []) as { amount_collected_cents: number }[]).reduce(
       (sum, r) => sum + (r.amount_collected_cents ?? 0),
       0,
     );
   }
 
-  // Per-event scan counts
+  // Per-event scan counts (today)
   const scanCountMap = new Map<string, number>();
-  if (eventIds.length > 0) {
-    for (const eid of eventIds) {
-      const { count } = await supabase
-        .from("scan_events")
-        .select("id", { count: "exact", head: true })
-        .eq("event_id", eid)
-        .eq("result", "valid");
-      scanCountMap.set(eid, count ?? 0);
-    }
+  for (const e of upcomingEvents) {
+    const { count } = await supabase
+      .from("scan_events")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", e.id)
+      .eq("result", "valid")
+      .gte("scanned_at", todayStart.toISOString());
+    scanCountMap.set(e.id, count ?? 0);
   }
 
   return (

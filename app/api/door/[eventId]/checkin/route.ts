@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Cast helper — used for tables not yet in database.types.ts (added in migration 0006)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -14,6 +19,12 @@ interface CheckinBody {
 
 type CheckinResult = "checked_in" | "not_found" | "already_in";
 type EntryType = "pass" | "guest_list" | "manual";
+
+interface ResponseBody {
+  result: CheckinResult;
+  entryType: EntryType;
+  holderName?: string | null;
+}
 
 export async function POST(request: Request, { params }: RouteParams) {
   try {
@@ -51,50 +62,40 @@ export async function POST(request: Request, { params }: RouteParams) {
         .maybeSingle();
 
       if (!pass) {
-        return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
-          result: "not_found",
-          entryType: "pass",
-        });
+        return NextResponse.json<ResponseBody>({ result: "not_found", entryType: "pass" });
       }
 
-      if (pass.status === "used") {
-        return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
-          result: "already_in",
-          entryType: "pass",
-        });
+      const p = pass as { id: string; status: string; holder_name: string | null };
+
+      if (p.status === "used") {
+        return NextResponse.json<ResponseBody>({ result: "already_in", entryType: "pass" });
+      }
+      if (p.status === "voided") {
+        return NextResponse.json<ResponseBody>({ result: "not_found", entryType: "pass" });
       }
 
-      if (pass.status === "voided") {
-        return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
-          result: "not_found",
-          entryType: "pass",
-        });
-      }
-
-      // Mark pass as used
       await service
         .from("passes")
         .update({ status: "used", used_at: new Date().toISOString(), used_by: user.id })
-        .eq("id", pass.id);
+        .eq("id", p.id);
 
-      // Insert scan_event
       await service.from("scan_events").insert({
-        pass_id: pass.id,
+        pass_id: p.id,
         scanner_id: user.id,
         event_id: eventId,
         result: "valid",
       });
 
-      return NextResponse.json<{ result: CheckinResult; entryType: EntryType; holderName: string | null }>({
+      return NextResponse.json<ResponseBody>({
         result: "checked_in",
         entryType: "pass",
-        holderName: pass.holder_name,
+        holderName: p.holder_name,
       });
     }
 
     // --- Path 2: guestListId provided ---
     if (guestListId) {
-      const { data: entry } = await service
+      const { data: entry } = await raw(service)
         .from("guest_list_entries")
         .select("id, checked_in, name")
         .eq("id", guestListId)
@@ -102,20 +103,20 @@ export async function POST(request: Request, { params }: RouteParams) {
         .maybeSingle();
 
       if (!entry) {
-        return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
-          result: "not_found",
-          entryType: "guest_list",
-        });
+        return NextResponse.json<ResponseBody>({ result: "not_found", entryType: "guest_list" });
       }
 
-      if (entry.checked_in) {
-        return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
+      const ge = entry as { id: string; checked_in: boolean; name: string };
+
+      if (ge.checked_in) {
+        return NextResponse.json<ResponseBody>({
           result: "already_in",
           entryType: "guest_list",
+          holderName: ge.name,
         });
       }
 
-      await service
+      await raw(service)
         .from("guest_list_entries")
         .update({
           checked_in: true,
@@ -124,16 +125,15 @@ export async function POST(request: Request, { params }: RouteParams) {
         })
         .eq("id", guestListId);
 
-      return NextResponse.json<{ result: CheckinResult; entryType: EntryType; holderName: string }>({
+      return NextResponse.json<ResponseBody>({
         result: "checked_in",
         entryType: "guest_list",
-        holderName: entry.name,
+        holderName: ge.name,
       });
     }
 
     // --- Path 3: manual name/phone lookup ---
     if (name || phone) {
-      // Try to find by phone first in passes, then guest list
       if (phone) {
         const { data: order } = await service
           .from("orders")
@@ -144,15 +144,16 @@ export async function POST(request: Request, { params }: RouteParams) {
           .maybeSingle();
 
         if (order) {
+          const o = order as { id: string };
           const { data: passes } = await service
             .from("passes")
             .select("id, status, holder_name, code")
             .eq("event_id", eventId)
-            .eq("order_id", order.id)
+            .eq("order_id", o.id)
             .eq("status", "valid")
             .limit(1);
 
-          const pass = passes?.[0];
+          const pass = (passes as { id: string; status: string; holder_name: string | null }[] | null)?.[0];
           if (pass) {
             await service
               .from("passes")
@@ -166,7 +167,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               result: "valid",
             });
 
-            return NextResponse.json<{ result: CheckinResult; entryType: EntryType; holderName: string | null }>({
+            return NextResponse.json<ResponseBody>({
               result: "checked_in",
               entryType: "pass",
               holderName: pass.holder_name,
@@ -175,8 +176,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       }
 
-      // Try guest list by name/phone
-      let guestQuery = service
+      // Try guest list
+      let guestQuery = raw(service)
         .from("guest_list_entries")
         .select("id, checked_in, name")
         .eq("event_id", eventId);
@@ -188,16 +189,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
 
       const { data: guestEntries } = await guestQuery.limit(1);
-      const guestEntry = guestEntries?.[0];
+      const guestEntry = (guestEntries as { id: string; checked_in: boolean; name: string }[] | null)?.[0];
 
       if (guestEntry) {
         if (guestEntry.checked_in) {
-          return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
+          return NextResponse.json<ResponseBody>({
             result: "already_in",
             entryType: "guest_list",
+            holderName: guestEntry.name,
           });
         }
-        await service
+        await raw(service)
           .from("guest_list_entries")
           .update({
             checked_in: true,
@@ -206,17 +208,14 @@ export async function POST(request: Request, { params }: RouteParams) {
           })
           .eq("id", guestEntry.id);
 
-        return NextResponse.json<{ result: CheckinResult; entryType: EntryType; holderName: string }>({
+        return NextResponse.json<ResponseBody>({
           result: "checked_in",
           entryType: "guest_list",
           holderName: guestEntry.name,
         });
       }
 
-      return NextResponse.json<{ result: CheckinResult; entryType: EntryType }>({
-        result: "not_found",
-        entryType: "manual",
-      });
+      return NextResponse.json<ResponseBody>({ result: "not_found", entryType: "manual" });
     }
 
     return NextResponse.json({ error: "Provide passCode, guestListId, name, or phone" }, { status: 422 });

@@ -129,9 +129,3 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 }
 
-export async function POST_DECLINE(request: Request, { params }: RouteParams) {
-  // Handled via a separate body action field pattern — see transfer accept page
-  await params;
-  await request.json();
-  return NextResponse.json({ error: "Use the decline endpoint" }, { status: 400 });
-}

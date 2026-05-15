@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Plus, Send, Clock, CheckCircle2, AlertCircle, FileText, MessageSquare } from "lucide-react";
+import { Plus, Clock, CheckCircle2, AlertCircle, FileText, MessageSquare } from "lucide-react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,9 @@ import { getCurrentPromoter } from "../_lib/queries";
 import { PageHeader } from "../_components/page-header";
 
 export const metadata = { title: "Broadcasts — WeFetePass" };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
 
 const statusConfig: Record<
   string,
@@ -27,12 +31,27 @@ const channelLabel: Record<string, string> = {
   both: "WA + SMS",
 };
 
+interface BroadcastRow {
+  id: string;
+  event_id: string | null;
+  channel: string;
+  status: string;
+  recipient_count: number | null;
+  sent_count: number | null;
+  failed_count: number | null;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  created_at: string;
+  body: string;
+  subject: string | null;
+}
+
 export default async function BroadcastsPage() {
   const promoter = await getCurrentPromoter();
   if (!promoter?.user) return null;
 
   const supabase = await createClient();
-  const { data: broadcasts } = await supabase
+  const { data: broadcasts } = await raw(supabase)
     .from("broadcasts")
     .select(
       "id, event_id, channel, status, recipient_count, sent_count, failed_count, scheduled_for, sent_at, created_at, body, subject",
@@ -41,7 +60,8 @@ export default async function BroadcastsPage() {
     .order("created_at", { ascending: false });
 
   // Fetch event titles for display
-  const eventIds = [...new Set((broadcasts ?? []).map((b) => b.event_id).filter(Boolean))] as string[];
+  const list = (broadcasts ?? []) as BroadcastRow[];
+  const eventIds = [...new Set(list.map((b) => b.event_id).filter(Boolean))] as string[];
   const eventTitleMap = new Map<string, string>();
   if (eventIds.length > 0) {
     const { data: events } = await supabase
@@ -52,8 +72,6 @@ export default async function BroadcastsPage() {
       eventTitleMap.set(e.id, e.title);
     }
   }
-
-  const list = broadcasts ?? [];
 
   return (
     <div className="space-y-6">
@@ -103,15 +121,15 @@ export default async function BroadcastsPage() {
                     <tr key={b.id} className="border-t border-border/60 hover:bg-muted/20">
                       <td className="px-4 py-3 max-w-xs">
                         <p className="truncate font-medium">
-                          {b.subject ?? (b.body as string).slice(0, 50) + ((b.body as string).length > 50 ? "…" : "")}
+                          {b.subject ?? b.body.slice(0, 50) + (b.body.length > 50 ? "…" : "")}
                         </p>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {b.event_id ? eventTitleMap.get(b.event_id) ?? "—" : "All events"}
+                        {b.event_id ? (eventTitleMap.get(b.event_id) ?? "—") : "All events"}
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant="secondary" className="text-xs">
-                          {channelLabel[b.channel as string] ?? b.channel}
+                          {channelLabel[b.channel] ?? b.channel}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 tabular-nums">
@@ -124,18 +142,18 @@ export default async function BroadcastsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant={cfg.variant} className="text-xs capitalize">
-                          {b.status === "sent" && <CheckCircle2 className="mr-1 h-3 w-3" />}
-                          {b.status === "scheduled" && <Clock className="mr-1 h-3 w-3" />}
-                          {b.status === "failed" && <AlertCircle className="mr-1 h-3 w-3" />}
+                        <Badge variant={cfg.variant} className="flex w-fit items-center gap-1 text-xs capitalize">
+                          {b.status === "sent" && <CheckCircle2 className="h-3 w-3" />}
+                          {b.status === "scheduled" && <Clock className="h-3 w-3" />}
+                          {b.status === "failed" && <AlertCircle className="h-3 w-3" />}
                           {cfg.label}
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">
                         {b.sent_at
-                          ? formatDateTime(b.sent_at as string)
+                          ? formatDateTime(b.sent_at)
                           : b.scheduled_for
-                            ? formatDateTime(b.scheduled_for as string)
+                            ? formatDateTime(b.scheduled_for)
                             : "—"}
                       </td>
                       <td className="px-4 py-3 text-right">

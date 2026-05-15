@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -80,32 +80,11 @@ export default function TransferPage() {
   const siteUrl =
     typeof window !== "undefined" ? window.location.origin : "https://wefetepass.com";
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [passRes, transfersRes] = await Promise.all([
-        fetch(`/api/passes/${passId}/transfer-data`).catch(() => null),
-        fetch(`/api/passes/${passId}/transfers-list`).catch(() => null),
-      ]);
-
-      // Since we don't have dedicated data endpoints, fetch via Supabase client approach
-      // We'll use the existing pass detail pattern via a light fetch from supabase
-      // The actual data loading happens via the server — we stub gracefully here
-      void passRes;
-      void transfersRes;
-    } catch {
-      // handled below
-    } finally {
-      setLoading(false);
-    }
-  }, [passId]);
-
   // Load pass + policy + transfers from the page itself (client-side via fetch)
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        // Fetch pass detail
         const passRes = await fetch(`/api/internal/pass-with-policy/${passId}`).catch(() => null);
         if (passRes?.ok) {
           const data = await passRes.json() as {
@@ -120,13 +99,13 @@ export default function TransferPage() {
           setHistory(data.history);
         }
       } catch {
-        // no-op
+        // no-op — form still usable without pre-loaded data
       } finally {
         setLoading(false);
       }
     }
     void load();
-  }, [passId, loadData]);
+  }, [passId]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

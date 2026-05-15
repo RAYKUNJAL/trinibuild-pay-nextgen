@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   DoorOpen,
 } from "lucide-react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -18,6 +19,9 @@ import { formatTTD } from "@/lib/utils";
 import { getCurrentPromoter } from "../../_lib/queries";
 
 export const metadata = { title: "Door Overview — WeFetePass" };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const raw = (client: unknown) => client as SupabaseClient<any>;
 
 interface PageProps {
   params: Promise<{ eventId: string }>;
@@ -29,14 +33,23 @@ export default async function EventDoorPage({ params }: PageProps) {
   if (!promoter?.user) return null;
 
   const supabase = await createClient();
-  const { data: event } = await supabase
+  const { data: eventRaw } = await supabase
     .from("events")
     .select("id, title, venue, starts_at, capacity, status")
     .eq("id", eventId)
     .eq("organizer_id", promoter.user.id)
     .maybeSingle();
 
-  if (!event) notFound();
+  if (!eventRaw) notFound();
+
+  const event = eventRaw as {
+    id: string;
+    title: string;
+    venue: string;
+    starts_at: string;
+    capacity: number | null;
+    status: string;
+  };
 
   // Stats
   const { count: totalPasses } = await supabase
@@ -51,26 +64,26 @@ export default async function EventDoorPage({ params }: PageProps) {
     .eq("event_id", eventId)
     .eq("status", "used");
 
-  const { count: compCount } = await supabase
+  const { count: compCount } = await raw(supabase)
     .from("comp_tickets")
     .select("id", { count: "exact", head: true })
     .eq("event_id", eventId);
 
-  const { data: doorSalesRows } = await supabase
+  const { data: doorSalesRows } = await raw(supabase)
     .from("door_sales")
     .select("amount_collected_cents")
     .eq("event_id", eventId);
-  const doorSalesTotal = (doorSalesRows ?? []).reduce(
+  const doorSalesTotal = ((doorSalesRows ?? []) as { amount_collected_cents: number }[]).reduce(
     (sum, r) => sum + (r.amount_collected_cents ?? 0),
     0,
   );
 
-  const { count: guestListCount } = await supabase
+  const { count: guestListCount } = await raw(supabase)
     .from("guest_list_entries")
     .select("id", { count: "exact", head: true })
     .eq("event_id", eventId);
 
-  const { count: guestListCheckedIn } = await supabase
+  const { count: guestListCheckedIn } = await raw(supabase)
     .from("guest_list_entries")
     .select("id", { count: "exact", head: true })
     .eq("event_id", eventId)
@@ -154,13 +167,11 @@ export default async function EventDoorPage({ params }: PageProps) {
                 <p className="text-sm text-muted-foreground">capacity</p>
               </div>
             </div>
-            <Progress
-              value={capacityPercent ?? 0}
-              className="h-3"
-            />
+            <Progress value={capacityPercent ?? 0} className="h-3" />
             <p className="text-xs text-muted-foreground">
               {capacityPercent ?? 0}% full
-              {issuedPercent !== null && ` · ${totalIssued} tickets issued (${issuedPercent}%)`}
+              {issuedPercent !== null &&
+                ` · ${totalIssued} tickets issued (${issuedPercent}%)`}
             </p>
           </CardContent>
         </Card>
