@@ -6,6 +6,41 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
+export async function GET(_request: Request, { params }: RouteParams) {
+  try {
+    const { eventId } = await params;
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: event } = await supabase
+      .from("events")
+      .select("id, organizer_id")
+      .eq("id", eventId)
+      .eq("organizer_id", user.id)
+      .maybeSingle();
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found or access denied" }, { status: 404 });
+    }
+
+    const { data: comps, error } = await supabase
+      .from("comp_tickets")
+      .select("id, holder_name, holder_phone, reason, issued_at, tier_id, pass_id, notes")
+      .eq("event_id", eventId)
+      .order("issued_at", { ascending: false });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return NextResponse.json({ comps: comps ?? [] });
+  } catch (err) {
+    console.error("[GET /api/door/[eventId]/comps]", err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });
+  }
+}
+
 interface CompsBody {
   holderName: string;
   holderPhone?: string;
