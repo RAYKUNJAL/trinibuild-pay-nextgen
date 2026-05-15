@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { EventCard, type EventCardEvent } from "@/components/event-card";
 import type { EventStatus } from "@/components/event-status-badge";
 import { WhatsappCapture } from "@/components/whatsapp-capture";
+import { ISLANDS } from "@/lib/islands";
 
 function statusToCard(status: "draft" | "published" | "soldout" | "cancelled"): EventStatus {
   switch (status) {
@@ -19,17 +20,20 @@ function statusToCard(status: "draft" | "published" | "soldout" | "cancelled"): 
   }
 }
 
-export async function FeaturedEventsStrip() {
+export async function FeaturedEventsStrip({ island }: { island?: string }) {
   const supabase = await createClient();
   const nowIso = new Date().toISOString();
+  const islandName = island ? ISLANDS.find((i) => i.code === island)?.name : undefined;
 
-  const { data } = await supabase
+  let query = supabase
     .from("events")
     .select(
       "id, slug, title, tagline, venue, city, starts_at, cover_image_url, status, ticket_tiers(price_cents)",
     )
     .eq("status", "published")
-    .gte("starts_at", nowIso)
+    .gte("starts_at", nowIso);
+  if (island) query = query.eq("island", island);
+  const { data } = await query
     .order("starts_at", { ascending: true })
     .limit(6);
 
@@ -65,7 +69,7 @@ export async function FeaturedEventsStrip() {
                 Fetes drop weekly. Get the WhatsApp.
               </h2>
               <p className="mt-3 text-sm text-muted-foreground md:text-base">
-                Drop your number and we&apos;ll WhatsApp you when new fetes hit your island —
+                Drop your number and we&apos;ll WhatsApp you when new fetes hit {islandName ?? "your island"} —
                 Carnival, Crop Over, Sumfest, soca parties, and everything in between.
                 No spam, just the line-up.
               </p>
@@ -90,7 +94,7 @@ export async function FeaturedEventsStrip() {
         <div className="mb-8 flex items-end justify-between gap-4">
           <div>
             <h2 className="font-display text-2xl font-bold md:text-3xl">
-              Coming up across the Caribbean
+              {islandName ? `Coming up in ${islandName}` : "Coming up across the Caribbean"}
             </h2>
             <p className="mt-2 text-sm text-muted-foreground md:text-base">
               Real fetes on sale right now. Tap any one to see tiers and grab your QR.

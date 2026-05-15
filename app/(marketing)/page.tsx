@@ -30,6 +30,7 @@ import MidnightMasHero from "@/components/midnight-mas-hero";
 import { FeaturedEventsStrip } from "@/components/featured-events-strip";
 import { StickyMobileCTA } from "@/components/sticky-mobile-cta";
 import { ISLANDS } from "@/lib/islands";
+import { detectIslandWithFallback } from "@/lib/geo";
 
 export const metadata: Metadata = {
   title: "WeFetePass — Caribbean fete tickets and promoter tools",
@@ -389,7 +390,8 @@ const promoterQuotes = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const detectedIsland = await detectIslandWithFallback("tt");
   return (
     <>
       <MidnightMasHero />
@@ -423,16 +425,24 @@ export default function HomePage() {
             <span className="mr-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Browse by island:
             </span>
-            {ISLANDS.slice(0, 8).map((isl) => (
-              <Link
-                key={isl.code}
-                href={`/discover?island=${isl.code}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-sm text-muted-foreground transition-colors hover:border-foreground hover:bg-muted hover:text-foreground"
-              >
-                <span aria-hidden>{isl.flag}</span>
-                {isl.name}
-              </Link>
-            ))}
+            {(() => {
+              const detected = ISLANDS.find((i) => i.code === detectedIsland);
+              const others = ISLANDS.filter((i) => i.code !== detectedIsland).slice(0, 7);
+              const ordered = detected ? [detected, ...others] : ISLANDS.slice(0, 8);
+              return ordered.map((isl) => (
+                <Link
+                  key={isl.code}
+                  href={`/discover?island=${isl.code}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-sm text-muted-foreground transition-colors hover:border-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <span aria-hidden>{isl.flag}</span>
+                  {isl.name}
+                  {isl.code === detectedIsland ? (
+                    <Badge variant="outline" className="ml-1 text-[10px]">Your island</Badge>
+                  ) : null}
+                </Link>
+              ));
+            })()}
             <Link
               href="/discover"
               className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
@@ -444,7 +454,7 @@ export default function HomePage() {
       </section>
 
       {/* Featured events — most important CRO element for cold traffic */}
-      <FeaturedEventsStrip />
+      <FeaturedEventsStrip island={detectedIsland} />
 
       <Section className="border-b border-border/60">
         <div className="grid gap-4 md:grid-cols-3">

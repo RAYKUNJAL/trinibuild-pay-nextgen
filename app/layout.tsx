@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Bricolage_Grotesque } from "next/font/google";
 import { Toaster } from "sonner";
+import { AnalyticsScript } from "@/components/analytics-script";
 import "./globals.css";
 
 const sans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${sans.variable} ${display.variable} font-sans min-h-dvh`}>
         {children}
         <Toaster richColors closeButton position="top-center" />
+        <AnalyticsScript />
       </body>
     </html>
   );
