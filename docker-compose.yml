@@ -1,0 +1,38 @@
+# WeFetePass — single-service compose for self-hosted deploys.
+# Bring your own Supabase (cloud or self-hosted); we do not start a DB here.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wefetepass:latest
+    container_name: wefetepass-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    networks:
+      - wefetepass
+    # The app does NOT currently expose /api/health.
+    # We hit "/" instead. Swap to /api/health if/when that route is added.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  wefetepass:
+    driver: bridge

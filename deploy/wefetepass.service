@@ -1,0 +1,34 @@
+[Unit]
+Description=WeFetePass (Next.js) production server
+Documentation=https://github.com/your-org/wefetepass
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/wefetepass
+EnvironmentFile=/opt/wefetepass/.env.production
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+# --- Logging ---
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wefetepass
+
+# --- Hardening ---
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
