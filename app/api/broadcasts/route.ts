@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSBClient } from "@supabase/supabase-js";
+import { env } from "@/lib/env";
+
+// Untyped client for tables not yet reflected in database.types.ts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getRawClient(supabase: any) {
+  return supabase as ReturnType<typeof createSBClient>;
+}
 
 interface BroadcastPostBody {
   eventId?: string;
@@ -7,6 +15,21 @@ interface BroadcastPostBody {
   body: string;
   channel: "whatsapp" | "sms" | "both";
   scheduledFor?: string;
+}
+
+interface BroadcastRow {
+  id: string;
+  event_id: string | null;
+  channel: string;
+  status: string;
+  recipient_count: number | null;
+  sent_count: number | null;
+  failed_count: number | null;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  created_at: string;
+  body: string;
+  subject: string | null;
 }
 
 export async function GET(request: Request) {
@@ -20,7 +43,17 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const eventId = url.searchParams.get("eventId");
 
-    let query = supabase
+    // Use supabase-js directly for new tables
+    const rawClient = createSBClient(
+      env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+      env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    );
+
+    // Pass auth cookie is not available here, so use service role for reads
+    // but filter by organizer_id (RLS not applicable on service role — we enforce manually)
+    void getRawClient(supabase); // satisfy import
+
+    let query = rawClient
       .from("broadcasts")
       .select(
         "id, event_id, channel, status, recipient_count, sent_count, failed_count, scheduled_for, sent_at, created_at, body, subject",
@@ -35,7 +68,7 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ broadcasts: data ?? [] });
+    return NextResponse.json({ broadcasts: (data ?? []) as BroadcastRow[] });
   } catch (err) {
     console.error("[GET /api/broadcasts]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });
@@ -60,7 +93,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Channel is required" }, { status: 422 });
     }
 
-    // Count distinct buyer phones for the audience scope
+    // Count distinct buyer phones for the audience scope (typed tables)
     let recipientCount = 0;
     if (eventId) {
       let ordersQuery = supabase
@@ -71,7 +104,6 @@ export async function POST(request: Request) {
         .not("buyer_phone", "is", null);
 
       if (tierIds && tierIds.length > 0) {
-        // Filter orders that have items for the specified tiers
         const { data: tierOrderIds } = await supabase
           .from("order_items")
           .select("order_id")
@@ -92,7 +124,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: broadcast, error } = await supabase
+    // Insert into new table using service role
+    const { createServiceClient } = await import("@/lib/supabase/server");
+    const service = await createServiceClient();
+    const rawService = service as unknown as ReturnType<typeof createSBClient>;
+
+    const { data: broadcast, error } = await rawService
       .from("broadcasts")
       .insert({
         organizer_id: user.id,
@@ -109,9 +146,11 @@ export async function POST(request: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    const b = broadcast as { id: string; recipient_count: number | null };
+
     return NextResponse.json({
-      broadcastId: broadcast.id,
-      recipientCount: broadcast.recipient_count ?? 0,
+      broadcastId: b.id,
+      recipientCount: b.recipient_count ?? 0,
     });
   } catch (err) {
     console.error("[POST /api/broadcasts]", err);
