@@ -1,12 +1,16 @@
 import { notFound, redirect } from 'next/navigation';
-import { Printer, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { Separator } from '@/components/ui/separator';
 import { formatTTD, formatDateTime } from '@/lib/utils';
 import { PrintButton } from './print-button';
+import type { Database } from '@/lib/database.types';
 
 export const metadata = { title: 'Remittance Statement — WeFetePass' };
+
+type ProfileRow = Database['public']['Tables']['profiles']['Row'];
+type PromoterRow = Database['public']['Tables']['promoter_profiles']['Row'];
 
 type LineItemRow = {
   id: string;
@@ -46,14 +50,6 @@ type BatchRow = {
   events: EventJoin | null;
 };
 
-type ProfileRow = {
-  full_name: string | null;
-};
-
-type PromoterRow = {
-  brand_name: string | null;
-};
-
 export default async function StatementDetailPage({
   params,
 }: {
@@ -69,7 +65,8 @@ export default async function StatementDetailPage({
     redirect(`/sign-in?next=/dashboard/payouts/statements/${id}`);
   }
 
-  const { data: batchRaw, error: batchErr } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: batchRaw, error: batchErr } = await (supabase as any)
     .from('payout_batches')
     .select(
       `
@@ -106,7 +103,8 @@ export default async function StatementDetailPage({
   }
 
   // Fetch line items
-  const { data: lineItemsRaw } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: lineItemsRaw } = await (supabase as any)
     .from('payout_line_items')
     .select('id, order_id, gross_cents, fee_cents, net_cents, description, created_at')
     .eq('batch_id', id)
@@ -120,23 +118,23 @@ export default async function StatementDetailPage({
     .select('full_name')
     .eq('id', user.id)
     .maybeSingle();
-  const profile = profileRaw as ProfileRow | null;
+  const profile = profileRaw as Pick<ProfileRow, 'full_name'> | null;
 
   const { data: promoterRaw } = await supabase
     .from('promoter_profiles')
     .select('brand_name')
     .eq('profile_id', user.id)
     .maybeSingle();
-  const promoter = promoterRaw as PromoterRow | null;
+  const promoter = promoterRaw as Pick<PromoterRow, 'brand_name'> | null;
 
   const organizerName = promoter?.brand_name ?? profile?.full_name ?? user.email ?? 'Organizer';
   const statementNumber = `WFP-${batch.id.slice(0, 8).toUpperCase()}`;
   const payoutDate = batch.completed_at ?? batch.scheduled_for;
 
-  const grossMinusFee = batch.gross_amount_cents - batch.platform_fee_cents;
-  const feePercent = batch.gross_amount_cents > 0
-    ? ((batch.platform_fee_cents / batch.gross_amount_cents) * 100).toFixed(1)
-    : '7.5';
+  const feePercent =
+    batch.gross_amount_cents > 0
+      ? ((batch.platform_fee_cents / batch.gross_amount_cents) * 100).toFixed(1)
+      : '7.5';
 
   return (
     <div className="min-h-screen bg-white">
@@ -183,7 +181,9 @@ export default async function StatementDetailPage({
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Payee</p>
             <p className="font-semibold text-gray-900">{organizerName}</p>
-            <p className="text-gray-500">Organizer ID: {user.id.slice(0, 8).toUpperCase()}</p>
+            <p className="text-gray-500">
+              Organizer ID: {user.id.slice(0, 8).toUpperCase()}
+            </p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Bank Account</p>
@@ -210,7 +210,9 @@ export default async function StatementDetailPage({
             <p className="font-semibold text-gray-900">{batch.events.title}</p>
             <p className="text-gray-500">
               {formatDateTime(batch.events.starts_at)}
-              {batch.events.ends_at ? ` — ${formatDateTime(batch.events.ends_at)}` : ''}
+              {batch.events.ends_at
+                ? ` — ${formatDateTime(batch.events.ends_at)}`
+                : ''}
             </p>
             <p className="text-gray-500">
               {batch.events.venue}, {batch.events.city}
@@ -237,13 +239,18 @@ export default async function StatementDetailPage({
                 {lineItems.map((item) => (
                   <tr key={item.id} className="text-gray-700">
                     <td className="py-2">
-                      {item.description ?? `Order ${item.order_id.slice(0, 8).toUpperCase()}`}
+                      {item.description ??
+                        `Order ${item.order_id.slice(0, 8).toUpperCase()}`}
                     </td>
-                    <td className="py-2 text-right font-mono">{formatTTD(item.gross_cents)}</td>
+                    <td className="py-2 text-right font-mono">
+                      {formatTTD(item.gross_cents)}
+                    </td>
                     <td className="py-2 text-right font-mono text-gray-400">
                       -{formatTTD(item.fee_cents)}
                     </td>
-                    <td className="py-2 text-right font-mono">{formatTTD(item.net_cents)}</td>
+                    <td className="py-2 text-right font-mono">
+                      {formatTTD(item.net_cents)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -264,12 +271,16 @@ export default async function StatementDetailPage({
             </div>
             <div className="flex justify-between text-gray-500">
               <span>Chargeback Reserve (5%)</span>
-              <span className="font-mono">-{formatTTD(batch.chargeback_reserve_cents)}</span>
+              <span className="font-mono">
+                -{formatTTD(batch.chargeback_reserve_cents)}
+              </span>
             </div>
             <Separator />
             <div className="flex justify-between font-bold text-gray-900">
               <span>Net Payout</span>
-              <span className="font-mono text-lg">{formatTTD(batch.net_amount_cents)}</span>
+              <span className="font-mono text-lg">
+                {formatTTD(batch.net_amount_cents)}
+              </span>
             </div>
           </div>
         </div>
@@ -280,10 +291,18 @@ export default async function StatementDetailPage({
         <div className="flex flex-col gap-1 text-xs text-gray-400 sm:flex-row sm:justify-between">
           <div>
             <p>WeFetePass Ltd. · Port of Spain, Trinidad and Tobago</p>
-            <p>Questions? Contact <span className="text-[#E40C2B]">payouts@wefetepass.com</span></p>
+            <p>
+              Questions? Contact{' '}
+              <span className="text-[#E40C2B]">payouts@wefetepass.com</span>
+            </p>
           </div>
           <div className="text-right">
-            <p>Statement generated: {new Date().toLocaleDateString('en-TT', { timeZone: 'America/Port_of_Spain' })}</p>
+            <p>
+              Statement generated:{' '}
+              {new Date().toLocaleDateString('en-TT', {
+                timeZone: 'America/Port_of_Spain',
+              })}
+            </p>
             <p>Currency: {batch.currency}</p>
           </div>
         </div>

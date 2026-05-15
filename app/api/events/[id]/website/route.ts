@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { EventWebsite } from "@/components/event-website-preview";
 
-// Supabase client typed helper for the unregistered event_websites table
-// (table exists post-migration; database.types.ts is generated separately)
-type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ew(supabase: SupabaseClient) { return (supabase as any).from("event_websites"); }
-
 type RouteContext = { params: Promise<{ id: string }> };
+
+// Supabase client typed helper for the event_websites table.
+// The table is defined in migration 0007; database.types.ts is generated
+// separately after the migration runs. We cast to `any` once here so that
+// all query sites remain clean typed via explicit return casts.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyClient = any;
 
 // ─── shared auth + ownership check ───────────────────────────────────────────
 
@@ -17,7 +18,7 @@ async function authorise(eventId: string) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthenticated", status: 401 as const, supabase, user: null };
+  if (!user) return { error: "Unauthenticated", status: 401 as const, supabase, user: null, event: null };
 
   // Confirm the caller owns this event
   const { data: event } = await supabase
@@ -28,7 +29,7 @@ async function authorise(eventId: string) {
     .maybeSingle();
 
   if (!event)
-    return { error: "Event not found or access denied", status: 404 as const, supabase, user: null };
+    return { error: "Event not found or access denied", status: 404 as const, supabase, user: null, event: null };
 
   return { error: null, status: 200 as const, supabase, user, event };
 }
@@ -42,12 +43,12 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const { supabase } = auth;
-  const { data: website } = await supabase
+  const supabase = auth.supabase as AnyClient;
+  const { data: website } = (await supabase
     .from("event_websites")
     .select("*")
     .eq("event_id", id)
-    .maybeSingle();
+    .maybeSingle()) as { data: EventWebsite | null };
 
   return NextResponse.json({ website: website ?? null });
 }
@@ -61,14 +62,15 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const { supabase, user } = auth;
+  const supabase = auth.supabase as AnyClient;
+  const user = auth.user!;
   const body = (await req.json()) as Record<string, unknown>;
 
-  const { data: website, error } = await supabase
+  const { data: website, error } = (await supabase
     .from("event_websites")
     .insert({
       event_id: id,
-      organizer_id: user!.id,
+      organizer_id: user.id,
       template: (body.template as string) ?? "midnight_mas",
       headline: (body.headline as string | undefined) ?? null,
       subheadline: (body.subheadline as string | undefined) ?? null,
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       status: "draft",
     })
     .select("*")
-    .single();
+    .single()) as { data: EventWebsite | null; error: { message: string } | null };
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
@@ -108,12 +110,13 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const { supabase, event } = auth;
+  const supabase = auth.supabase as AnyClient;
+  const event = auth.event!;
   const body = (await req.json()) as Record<string, unknown>;
 
   // If publishing, validate event is not cancelled
   if (body.status === "published") {
-    if (event!.status === "cancelled") {
+    if ((event as { status: string }).status === "cancelled") {
       return NextResponse.json(
         { error: "Cannot publish a website for a cancelled event." },
         { status: 422 },
@@ -122,7 +125,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   }
 
   // Build the update payload — only include keys present in the body
-  const allowed: Array<keyof typeof body> = [
+  const allowed = [
     "template",
     "headline",
     "subheadline",
@@ -142,7 +145,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     "custom_css",
     "custom_slug",
     "status",
-  ];
+  ] as const;
 
   const patch: Record<string, unknown> = {};
   for (const key of allowed) {
@@ -153,12 +156,12 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     patch.published_at = new Date().toISOString();
   }
 
-  const { data: website, error } = await supabase
+  const { data: website, error } = (await supabase
     .from("event_websites")
     .update(patch)
     .eq("event_id", id)
     .select("*")
-    .single();
+    .single()) as { data: EventWebsite | null; error: { message: string } | null };
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
