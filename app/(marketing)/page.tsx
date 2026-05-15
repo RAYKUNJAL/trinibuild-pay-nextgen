@@ -19,6 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import MidnightMasHero from "@/components/midnight-mas-hero";
 
 export const metadata: Metadata = {
   title: "WeFetePass — Trini fete tickets and promoter tools",
@@ -186,7 +187,7 @@ const promoterQuotes = [
 export default function HomePage() {
   return (
     <>
-      <HeroSplit />
+      <MidnightMasHero />
 
       <Section className="border-b border-border/60">
         <div className="grid gap-4 md:grid-cols-3">
