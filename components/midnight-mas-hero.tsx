@@ -265,11 +265,11 @@ export default function MidnightMasAnimatedHero() {
         >
           <div className="mb-6 flex items-center gap-4">
             <span className="h-px w-8 bg-[#1cc5be]" />
-            <p className="text-[11px] uppercase tracking-[0.38em] text-[#d8ab5b]">Trinidad Carnival 2027</p>
+            <p className="text-[11px] uppercase tracking-[0.38em] text-[#d8ab5b]">Caribbean Fetes &amp; Carnival 2027</p>
           </div>
 
-          <h1 className="max-w-[11ch] font-serif text-[58px] leading-[0.98] tracking-[-0.04em] text-[#f2d9ad] sm:text-[76px] lg:max-w-[12ch] lg:text-[88px]">
-            Enter Carnival in rare form.
+          <h1 className="max-w-[12ch] font-serif text-[58px] leading-[0.98] tracking-[-0.04em] text-[#f2d9ad] sm:text-[76px] lg:max-w-[13ch] lg:text-[88px]">
+            Your fete ticket, sorted.
           </h1>
 
           <div className="my-8 flex items-center gap-4">
@@ -278,8 +278,8 @@ export default function MidnightMasAnimatedHero() {
             <span className="h-px flex-1 bg-[#d8ab5b]/45" />
           </div>
 
-          <p className="max-w-sm text-[16px] leading-7 text-[#e8dfd2]/82">
-            Exclusive masquerade access. Curated events. Luxury road experiences. All, by design.
+          <p className="max-w-md text-[16px] leading-7 text-[#e8dfd2]/82">
+            Find fetes across the Caribbean. Pay by bank transfer, get your QR ticket on WhatsApp, walk straight in. No cards, no chaos.
           </p>
 
           <div id="access" className="mt-7 grid gap-4">
@@ -293,15 +293,30 @@ export default function MidnightMasAnimatedHero() {
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
             </motion.a>
             <motion.a
-              href="/sign-up?role=attendee"
+              href="/sign-up?role=promoter"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
               className="group flex h-16 items-center justify-center gap-4 rounded-lg border border-[#d8ab5b]/70 bg-black/30 text-[12px] font-semibold uppercase tracking-[0.32em] text-[#d8ab5b] backdrop-blur-md"
             >
-              Get Carnival Access
+              I&apos;m a Promoter
               <span className="h-2 w-2 rotate-45 border border-[#d8ab5b] transition-transform group-hover:rotate-90" />
             </motion.a>
           </div>
+
+          <ul className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.18em] text-[#d8ab5b]/75">
+            <li className="flex items-center gap-1.5">
+              <span className="h-1 w-1 rounded-full bg-[#d8ab5b]" aria-hidden />
+              Bank transfer accepted
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="h-1 w-1 rounded-full bg-[#d8ab5b]" aria-hidden />
+              QR delivered in 60s
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="h-1 w-1 rounded-full bg-[#d8ab5b]" aria-hidden />
+              Refund guarantee
+            </li>
+          </ul>
         </motion.div>
 
         <section id="events" className="relative z-20 mt-8 space-y-3 pb-16">

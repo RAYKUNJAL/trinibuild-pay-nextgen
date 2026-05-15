@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import MidnightMasHero from "@/components/midnight-mas-hero";
+import { FeaturedEventsStrip } from "@/components/featured-events-strip";
+import { StickyMobileCTA } from "@/components/sticky-mobile-cta";
 
 export const metadata: Metadata = {
   title: "WeFetePass — Caribbean fete tickets and promoter tools",
@@ -158,6 +160,33 @@ const features = [
     Icon: Users,
     title: "Group ready",
     body: "Buyers split with the crew. Promoters sell tables and VIP sections without spreadsheets.",
+  },
+];
+
+const faqs = [
+  {
+    q: "Is paying by bank transfer actually safe?",
+    a: "Yes. Every receipt is checked by our AI fraud detection in seconds. If anything looks off, it gets flagged before your order is confirmed. Your ticket only releases once payment is verified.",
+  },
+  {
+    q: "What happens if the event gets cancelled?",
+    a: "100% refund to the bank account you paid from, processed within 5 business days. Buyer protection is automatic — you don't need to fight for it.",
+  },
+  {
+    q: "How do I get my ticket?",
+    a: "A WhatsApp message with your QR code within 60 seconds of payment verification. You can also add it to Apple Wallet or Google Wallet. No printing, no email lost in spam.",
+  },
+  {
+    q: "Do I need to create an account?",
+    a: "No. Just your name, phone, and bank receipt. You can create an account later if you want to track tickets across multiple fetes.",
+  },
+  {
+    q: "What if my friends and I want to go together?",
+    a: "Use group ticketing at checkout. One person pays, the others get their own QR codes on WhatsApp. No one chasing anyone for cash.",
+  },
+  {
+    q: "Which islands are live?",
+    a: "Trinidad & Tobago, Jamaica, Barbados, Grenada, St. Lucia, Antigua, St. Vincent, Dominica, Bahamas, Guyana, St. Kitts, and the USVI. More fetes drop every week.",
   },
 ];
 
@@ -363,6 +392,31 @@ export default function HomePage() {
   return (
     <>
       <MidnightMasHero />
+
+      {/* Trust strip — high above the fold, no logos required */}
+      <section className="border-b border-border/60 bg-foreground/[0.02]">
+        <div className="container flex flex-wrap items-center justify-center gap-x-8 gap-y-3 py-5 text-xs uppercase tracking-wide text-muted-foreground sm:text-sm">
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-red" aria-hidden />
+            12 Caribbean islands
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-red" aria-hidden />
+            Bank transfer + WhatsApp delivery
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-red" aria-hidden />
+            AI fraud detection
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-red" aria-hidden />
+            100% buyer protection
+          </span>
+        </div>
+      </section>
+
+      {/* Featured events — most important CRO element for cold traffic */}
+      <FeaturedEventsStrip />
 
       <Section className="border-b border-border/60">
         <div className="grid gap-4 md:grid-cols-3">
@@ -586,6 +640,24 @@ export default function HomePage() {
         </div>
       </Section>
 
+      {/* FAQ — answers cold-traffic objections before the final CTA */}
+      <Section className="border-t border-border/60">
+        <div className="mb-10 max-w-2xl">
+          <h2 className="font-display text-3xl font-bold md:text-4xl">Common questions.</h2>
+          <p className="mt-3 text-muted-foreground">
+            What every first-time buyer wants to know before they click Pay.
+          </p>
+        </div>
+        <div className="grid gap-6 md:grid-cols-2">
+          {faqs.map((f) => (
+            <div key={f.q} className="rounded-lg border border-border/60 p-5">
+              <h3 className="font-semibold">{f.q}</h3>
+              <p className="mt-2 text-sm text-muted-foreground">{f.a}</p>
+            </div>
+          ))}
+        </div>
+      </Section>
+
       <Section className="border-t border-border/60 bg-gradient-to-b from-muted/30 to-background">
         <div className="mb-10 max-w-2xl">
           <h2 className="font-display text-3xl font-bold md:text-4xl">Ready when you are.</h2>
@@ -623,6 +695,8 @@ export default function HomePage() {
           </Card>
         </div>
       </Section>
+
+      <StickyMobileCTA />
     </>
   );
 }
