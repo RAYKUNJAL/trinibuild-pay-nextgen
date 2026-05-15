@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { ISLANDS, getIslandCities, DEFAULT_ISLAND } from "@/lib/islands";
 
 const tierSchema = z.object({
   id: z.string().optional(),
@@ -27,6 +28,7 @@ const eventSchema = z.object({
   tagline: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   venue: z.string().min(1, "Venue required"),
+  island: z.string().min(1, "Island required"),
   city: z.string().min(1, "City required"),
   starts_at: z.string().min(1, "Start date required"),
   ends_at: z.string().optional().nullable(),
@@ -43,6 +45,7 @@ export type EventFormInitial = {
   tagline?: string | null;
   description?: string | null;
   venue?: string;
+  island?: string;
   city?: string;
   starts_at?: string;
   ends_at?: string | null;
@@ -85,6 +88,7 @@ export function EventForm({
       tagline: initial?.tagline ?? "",
       description: initial?.description ?? "",
       venue: initial?.venue ?? "",
+      island: initial?.island ?? DEFAULT_ISLAND,
       city: initial?.city ?? "Port of Spain",
       starts_at: toLocalInput(initial?.starts_at),
       ends_at: toLocalInput(initial?.ends_at),
@@ -119,6 +123,11 @@ export function EventForm({
     name: "tiers",
   });
 
+  const selectedIsland = useWatch({ control: form.control, name: "island" });
+  const islandInfo = ISLANDS.find((i) => i.code === selectedIsland) ?? ISLANDS[0];
+  const cityOptions = getIslandCities(selectedIsland);
+  const priceCurrencyLabel = `Price (${islandInfo.currency})`;
+
   async function onSubmit(values: EventFormValues) {
     setSubmitting(true);
     setServerError(null);
@@ -129,6 +138,7 @@ export function EventForm({
           tagline: values.tagline || null,
           description: values.description || null,
           venue: values.venue,
+          island: values.island,
           city: values.city,
           starts_at: new Date(values.starts_at).toISOString(),
           ends_at: values.ends_at ? new Date(values.ends_at).toISOString() : null,
@@ -193,7 +203,23 @@ export function EventForm({
             <Label htmlFor="description">Description</Label>
             <Textarea id="description" rows={4} {...form.register("description")} />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+
+          {/* Island + venue + city row */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="island">Island</Label>
+              <select
+                id="island"
+                {...form.register("island")}
+                className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                {ISLANDS.map((isl) => (
+                  <option key={isl.code} value={isl.code}>
+                    {isl.flag} {isl.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <Label htmlFor="venue">Venue</Label>
               <Input id="venue" {...form.register("venue")} />
@@ -205,9 +231,18 @@ export function EventForm({
             </div>
             <div>
               <Label htmlFor="city">City</Label>
-              <Input id="city" {...form.register("city")} />
+              <select
+                id="city"
+                {...form.register("city")}
+                className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                {cityOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
             </div>
           </div>
+
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <Label htmlFor="starts_at">Starts at</Label>
@@ -223,12 +258,8 @@ export function EventForm({
               <Input id="ends_at" type="datetime-local" {...form.register("ends_at")} />
             </div>
             <div>
-              <Label htmlFor="gate_open_at">Gate opens</Label>
-              <Input
-                id="gate_open_at"
-                type="datetime-local"
-                {...form.register("gate_open_at")}
-              />
+              <Label htmlFor="gate_open_at">Gate opens at</Label>
+              <Input id="gate_open_at" type="datetime-local" {...form.register("gate_open_at")} />
             </div>
           </div>
           <div>
@@ -291,7 +322,7 @@ export function EventForm({
                     <Input {...form.register(`tiers.${i}.name`)} />
                   </div>
                   <div>
-                    <Label>Price (TTD)</Label>
+                    <Label>{priceCurrencyLabel}</Label>
                     <Input
                       type="number"
                       step="0.01"

@@ -53,6 +53,7 @@ export default async function EditEventPage({
               tagline: event.tagline,
               description: event.description,
               venue: event.venue,
+              island: (event as { island?: string }).island ?? "tt",
               city: event.city,
               starts_at: event.starts_at,
               ends_at: event.ends_at,

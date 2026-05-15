@@ -14,6 +14,7 @@ interface CreateEventBody {
     tagline?: string;
     description?: string;
     venue: string;
+    island?: string;
     city: string;
     starts_at: string;
     ends_at?: string;
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
       tagline: eventData.tagline ?? null,
       description: eventData.description ?? null,
       venue: eventData.venue,
+      island: eventData.island ?? "tt",
       city: eventData.city,
       starts_at: eventData.starts_at,
       ends_at: eventData.ends_at ?? null,

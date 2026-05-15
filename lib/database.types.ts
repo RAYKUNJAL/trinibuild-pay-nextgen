@@ -95,6 +95,7 @@ export interface Database {
           description: string | null;
           venue: string;
           city: string;
+          island: string;
           starts_at: string;
           ends_at: string | null;
           cover_image_url: string | null;
@@ -114,6 +115,7 @@ export interface Database {
           description?: string | null;
           venue: string;
           city: string;
+          island?: string;
           starts_at: string;
           ends_at?: string | null;
           cover_image_url?: string | null;

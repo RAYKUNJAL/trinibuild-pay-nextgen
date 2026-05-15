@@ -9,20 +9,21 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EventStatus } from "@/components/event-status-badge";
+import { ISLANDS, getIslandCities, DEFAULT_ISLAND } from "@/lib/islands";
 
 export const metadata: Metadata = {
   title: "Find your next fete",
-  description: "Browse fetes across Trinidad & Tobago. Soca, all-inclusive, cooler fetes, Carnival 2027.",
+  description: "Browse fetes across the Caribbean. Pay by bank transfer, get your QR ticket, breeze through the door.",
 };
 
 const PAGE_SIZE = 24;
 
-const CITY_OPTIONS = ["All", "Port of Spain", "San Fernando", "Tobago"] as const;
 const TYPE_OPTIONS = ["All", "Soca", "All-inclusive", "Cooler fete", "Club night", "Carnival"] as const;
-const DATE_OPTIONS = ["Any", "This weekend", "This month", "Carnival 2027"] as const;
+const DATE_OPTIONS = ["Any", "This weekend", "This month", "Carnival season"] as const;
 
 type SP = {
   q?: string;
+  island?: string;
   city?: string;
   type?: string;
   date?: string;
@@ -60,8 +61,8 @@ function dateRange(opt?: string): { gte?: string; lte?: string } {
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     return { gte: start.toISOString(), lte: end.toISOString() };
   }
-  if (opt === "Carnival 2027") {
-    return { gte: "2027-01-01T00:00:00.000Z", lte: "2027-03-15T00:00:00.000Z" };
+  if (opt === "Carnival season") {
+    return { gte: "2027-01-01T00:00:00.000Z", lte: "2027-12-31T00:00:00.000Z" };
   }
   return {};
 }
@@ -78,20 +79,25 @@ function buildQS(params: Record<string, string | undefined>) {
 export default async function DiscoverPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
+  const island = sp.island ?? "tt";
   const city = sp.city ?? "All";
   const type = sp.type ?? "All";
   const date = sp.date ?? "Any";
   const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
+
+  const islandData = ISLANDS.find((i) => i.code === island) ?? ISLANDS[0];
+  const CITY_OPTIONS = ["All", ...getIslandCities(island)] as readonly string[];
 
   const supabase = await createClient();
 
   let query = supabase
     .from("events")
     .select(
-      "id, slug, title, tagline, venue, city, starts_at, cover_image_url, status, ticket_tiers(price_cents)",
+      "id, slug, title, tagline, venue, city, island, starts_at, cover_image_url, status, ticket_tiers(price_cents)",
       { count: "exact" },
     )
     .eq("status", "published")
+    .eq("island", island)
     .order("starts_at", { ascending: true })
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
 
@@ -124,13 +130,13 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
   const totalPages = count ? Math.ceil(count / PAGE_SIZE) : 1;
   const hasResults = events.length > 0;
 
-  const baseParams = { q, city, type, date };
+  const baseParams = { q, island, city, type, date };
 
   return (
     <Section>
       <PageHeader
         title="Find your next fete"
-        description="Browse fetes across Trinidad & Tobago. Pay by bank transfer, get your QR ticket, breeze through the door."
+        description="Browse events across the Caribbean. Pay by bank transfer, get your QR ticket, walk straight in."
       />
 
       <form className="mt-6 flex flex-col gap-4" action="/discover" method="get">
@@ -152,11 +158,29 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
         <input type="hidden" name="date" value={date} />
 
         <div className="space-y-3">
-          <FilterRow label="City" options={CITY_OPTIONS as readonly string[]} active={city} param="city" base={baseParams} />
+          {/* Island picker — always first */}
+          <IslandRow active={island} base={baseParams} />
+          <FilterRow
+            label="City"
+            options={CITY_OPTIONS}
+            active={city !== "All" && CITY_OPTIONS.includes(city) ? city : "All"}
+            param="city"
+            base={{ ...baseParams, island }}
+          />
           <FilterRow label="Type" options={TYPE_OPTIONS as readonly string[]} active={type} param="type" base={baseParams} />
           <FilterRow label="When" options={DATE_OPTIONS as readonly string[]} active={date} param="date" base={baseParams} />
         </div>
       </form>
+
+      {/* Island context bar */}
+      <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+        <span className="text-base">{islandData.flag}</span>
+        <span>
+          Showing events in <span className="font-medium text-foreground">{islandData.name}</span>
+          {" · "}Carnival season: <span className="font-medium text-foreground">{islandData.carnival}</span>
+          {" · "}Currency: <span className="font-medium text-foreground">{islandData.currency}</span>
+        </span>
+      </div>
 
       <div className="mt-8">
         {hasResults ? (
@@ -194,6 +218,40 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
   );
 }
 
+function IslandRow({
+  active,
+  base,
+}: {
+  active: string;
+  base: { q: string; island: string; city: string; type: string; date: string };
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Island</span>
+      {ISLANDS.map((isl) => {
+        const next = { ...base, island: isl.code, city: "All" };
+        const qs = buildQS(next);
+        const isActive = active === isl.code;
+        return (
+          <Link
+            key={isl.code}
+            href={`/discover${qs}`}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
+              isActive
+                ? "border-foreground bg-foreground text-background"
+                : "border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <span aria-hidden>{isl.flag}</span>
+            {isl.name}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function FilterRow({
   label,
   options,
@@ -205,7 +263,7 @@ function FilterRow({
   options: readonly string[];
   active: string;
   param: "city" | "type" | "date";
-  base: { q: string; city: string; type: string; date: string };
+  base: { q: string; island: string; city: string; type: string; date: string };
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">

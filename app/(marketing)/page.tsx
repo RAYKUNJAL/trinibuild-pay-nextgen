@@ -22,9 +22,9 @@ import { Badge } from "@/components/ui/badge";
 import MidnightMasHero from "@/components/midnight-mas-hero";
 
 export const metadata: Metadata = {
-  title: "WeFetePass — Trini fete tickets and promoter tools",
+  title: "WeFetePass — Caribbean fete tickets and promoter tools",
   description:
-    "Find fetes, pay by bank transfer, get a QR ticket on WhatsApp. Or sell tickets with the platform built for T&T promoters.",
+    "Find fetes across the Caribbean, pay by bank transfer, get a QR ticket on WhatsApp. Or sell tickets with the platform built for island promoters.",
 };
 
 function Section({
@@ -55,7 +55,7 @@ function HeroSplit() {
               Find your next fete.
             </CardTitle>
             <CardDescription className="text-base">
-              Browse events, pay by bank transfer, get your QR ticket. No stress.
+              Browse events across the Caribbean, pay by bank transfer, get your QR ticket. No stress.
             </CardDescription>
           </CardHeader>
           <CardContent>
