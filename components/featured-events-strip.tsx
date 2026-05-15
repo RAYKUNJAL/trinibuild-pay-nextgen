@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, MessageCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { EventCard, type EventCardEvent } from "@/components/event-card";
 import type { EventStatus } from "@/components/event-status-badge";
+import { WhatsappCapture } from "@/components/whatsapp-capture";
 
 function statusToCard(status: "draft" | "published" | "soldout" | "cancelled"): EventStatus {
   switch (status) {
@@ -49,7 +50,39 @@ export async function FeaturedEventsStrip() {
     };
   });
 
-  if (events.length === 0) return null;
+  // Empty-state: capture the cold visitor with a WhatsApp waitlist
+  if (events.length === 0) {
+    return (
+      <section className="border-b border-border/60 py-16 md:py-20">
+        <div className="container">
+          <div className="mx-auto grid max-w-4xl gap-8 rounded-xl border border-border/60 bg-muted/20 p-8 md:grid-cols-2 md:p-12">
+            <div>
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-brand-red/10 px-3 py-1 text-xs font-semibold text-brand-red">
+                <MessageCircle className="h-3 w-3" aria-hidden />
+                Be first to know
+              </div>
+              <h2 className="mt-4 font-display text-2xl font-bold md:text-3xl">
+                Fetes drop weekly. Get the WhatsApp.
+              </h2>
+              <p className="mt-3 text-sm text-muted-foreground md:text-base">
+                Drop your number and we&apos;ll WhatsApp you when new fetes hit your island —
+                Carnival, Crop Over, Sumfest, soca parties, and everything in between.
+                No spam, just the line-up.
+              </p>
+              <ul className="mt-4 space-y-1.5 text-sm text-muted-foreground">
+                <li>· First access to early bird pricing</li>
+                <li>· Direct from the promoter, never resold</li>
+                <li>· Stop anytime by replying STOP</li>
+              </ul>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-background p-6">
+              <WhatsappCapture />
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="border-b border-border/60 py-16 md:py-20">

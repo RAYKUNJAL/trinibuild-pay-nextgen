@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import MidnightMasHero from "@/components/midnight-mas-hero";
 import { FeaturedEventsStrip } from "@/components/featured-events-strip";
 import { StickyMobileCTA } from "@/components/sticky-mobile-cta";
+import { ISLANDS } from "@/lib/islands";
 
 export const metadata: Metadata = {
   title: "WeFetePass — Caribbean fete tickets and promoter tools",
@@ -412,6 +413,33 @@ export default function HomePage() {
             <span className="h-1.5 w-1.5 rounded-full bg-brand-red" aria-hidden />
             100% buyer protection
           </span>
+        </div>
+      </section>
+
+      {/* Quick island shortcuts — direct entry for non-T&T cold traffic */}
+      <section className="border-b border-border/60 py-6">
+        <div className="container">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Browse by island:
+            </span>
+            {ISLANDS.slice(0, 8).map((isl) => (
+              <Link
+                key={isl.code}
+                href={`/discover?island=${isl.code}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 px-3 py-1 text-sm text-muted-foreground transition-colors hover:border-foreground hover:bg-muted hover:text-foreground"
+              >
+                <span aria-hidden>{isl.flag}</span>
+                {isl.name}
+              </Link>
+            ))}
+            <Link
+              href="/discover"
+              className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              See all 12 <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </div>
         </div>
       </section>
 

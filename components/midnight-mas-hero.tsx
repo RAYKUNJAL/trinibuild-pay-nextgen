@@ -282,25 +282,25 @@ export default function MidnightMasAnimatedHero() {
             Find fetes across the Caribbean. Pay by bank transfer, get your QR ticket on WhatsApp, walk straight in. No cards, no chaos.
           </p>
 
-          <div id="access" className="mt-7 grid gap-4">
+          <div id="access" className="mt-7 space-y-4">
             <motion.a
               href="/discover"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className="group flex h-16 items-center justify-center gap-4 rounded-lg bg-gradient-to-r from-[#b9853f] via-[#e6bf78] to-[#a36e31] text-[12px] font-semibold uppercase tracking-[0.36em] text-black shadow-[0_18px_40px_rgba(185,133,63,0.26)]"
+              className="group flex h-16 items-center justify-center gap-4 rounded-lg bg-gradient-to-r from-[#b9853f] via-[#e6bf78] to-[#a36e31] text-[13px] font-semibold uppercase tracking-[0.36em] text-black shadow-[0_18px_40px_rgba(185,133,63,0.34)]"
             >
-              Explore Events
+              Find Your Next Fete
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
             </motion.a>
-            <motion.a
-              href="/sign-up?role=promoter"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
-              className="group flex h-16 items-center justify-center gap-4 rounded-lg border border-[#d8ab5b]/70 bg-black/30 text-[12px] font-semibold uppercase tracking-[0.32em] text-[#d8ab5b] backdrop-blur-md"
-            >
-              I&apos;m a Promoter
-              <span className="h-2 w-2 rotate-45 border border-[#d8ab5b] transition-transform group-hover:rotate-90" />
-            </motion.a>
+            <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-[0.24em] text-[#e8dfd2]/65">
+              <span>Selling tickets?</span>
+              <a
+                href="/sign-up?role=promoter"
+                className="font-semibold text-[#d8ab5b] underline-offset-4 hover:underline"
+              >
+                Apply as a promoter →
+              </a>
+            </div>
           </div>
 
           <ul className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.18em] text-[#d8ab5b]/75">
