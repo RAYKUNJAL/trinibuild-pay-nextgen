@@ -131,7 +131,8 @@ export async function POST(
 
     const { data: reportRaw, error: insertError } = await serviceClient
       .from("event_reports")
-      .insert(insertPayload)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .insert(insertPayload as any)
       .select("id")
       .single();
 

@@ -88,7 +88,8 @@ export async function POST(request: Request) {
 
     const { data: recordRaw, error: upsertError } = await serviceClient
       .from("promoter_verifications")
-      .upsert(upsertPayload, { onConflict: "profile_id" })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .upsert(upsertPayload as any, { onConflict: "profile_id" })
       .select("id, status")
       .single();
 

@@ -1,5 +1,31 @@
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import type { Database } from '@/lib/database.types';
+
+type EventRow = Database['public']['Tables']['events']['Row'];
+type OrderRow = Database['public']['Tables']['orders']['Row'];
+type ProfileRow = Database['public']['Tables']['profiles']['Row'];
+
+type BankAccountRaw = {
+  id: string;
+  bank_name: string;
+  account_last4: string;
+  validated: boolean;
+};
+
+type ExistingBatchRaw = {
+  id: string;
+  status: string;
+};
+
+type LineItemInsert = {
+  batch_id: string;
+  order_id: string;
+  gross_cents: number;
+  fee_cents: number;
+  net_cents: number;
+  description: string;
+};
 
 const PLATFORM_FEE_RATE = 0.075; // 7.5%
 const CHARGEBACK_RESERVE_RATE = 0.05; // 5%
@@ -26,7 +52,8 @@ export async function POST(request: Request) {
       .select('role')
       .eq('id', user.id)
       .maybeSingle();
-    if (!profileData || !['organizer', 'admin'].includes(profileData.role)) {
+    const profile = profileData as Pick<ProfileRow, 'role'> | null;
+    if (!profile || !['organizer', 'admin'].includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden: organizer role required' }, { status: 403 });
     }
 
@@ -47,18 +74,20 @@ export async function POST(request: Request) {
       .eq('id', eventId)
       .maybeSingle();
 
-    if (!eventData) {
+    const event = eventData as Pick<EventRow, 'id' | 'title' | 'organizer_id' | 'status' | 'ends_at' | 'starts_at'> | null;
+
+    if (!event) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
-    if (eventData.organizer_id !== user.id) {
+    if (event.organizer_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Check event is published or has ended (starts_at is in the past)
-    const eventStarted = new Date(eventData.starts_at) <= new Date();
-    const isPublished = eventData.status === 'published';
-    const isSoldOut = eventData.status === 'soldout';
+    // Check event is published or has started
+    const eventStarted = new Date(event.starts_at) <= new Date();
+    const isPublished = event.status === 'published';
+    const isSoldOut = event.status === 'soldout';
     if (!isPublished && !isSoldOut && !eventStarted) {
       return NextResponse.json(
         { error: 'Payouts are only available for published events or events that have started' },
@@ -67,13 +96,16 @@ export async function POST(request: Request) {
     }
 
     // Check there is no active payout batch for this event already
-    const { data: existingBatch } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: existingBatchData } = await (supabase as any)
       .from('payout_batches')
       .select('id, status')
       .eq('event_id', eventId)
       .eq('organizer_id', user.id)
       .not('status', 'in', '("cancelled","failed")')
       .maybeSingle();
+
+    const existingBatch = existingBatchData as ExistingBatchRaw | null;
 
     if (existingBatch) {
       return NextResponse.json(
@@ -87,12 +119,15 @@ export async function POST(request: Request) {
     }
 
     // Check organizer has a validated bank account with the given ID
-    const { data: bankAccount } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: bankAccountData } = await (supabase as any)
       .from('bank_accounts')
       .select('id, bank_name, account_last4, validated')
       .eq('id', bankAccountId)
       .eq('organizer_id', user.id)
       .maybeSingle();
+
+    const bankAccount = bankAccountData as BankAccountRaw | null;
 
     if (!bankAccount) {
       return NextResponse.json({ error: 'Bank account not found' }, { status: 404 });
@@ -104,23 +139,25 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find all paid orders for this event that are not already in a payout batch
-    const { data: lineItemOrders } = await supabase
+    // Find all paid orders for this event not already in a payout batch
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: lineItemOrders } = await (supabase as any)
       .from('payout_line_items')
       .select('order_id, payout_batches!inner(organizer_id)')
       .eq('payout_batches.organizer_id', user.id);
 
     const coveredOrderIds = new Set(
-      (lineItemOrders ?? []).map((li: { order_id: string }) => li.order_id),
+      ((lineItemOrders ?? []) as { order_id: string }[]).map((li) => li.order_id),
     );
 
-    const { data: paidOrders } = await supabase
+    const { data: paidOrdersData } = await supabase
       .from('orders')
       .select('id, subtotal_cents, fee_cents')
       .eq('event_id', eventId)
       .eq('status', 'paid');
 
-    const uncoveredOrders = (paidOrders ?? []).filter((o: { id: string }) => !coveredOrderIds.has(o.id));
+    const paidOrders = (paidOrdersData ?? []) as Pick<OrderRow, 'id' | 'subtotal_cents' | 'fee_cents'>[];
+    const uncoveredOrders = paidOrders.filter((o) => !coveredOrderIds.has(o.id));
 
     if (uncoveredOrders.length === 0) {
       return NextResponse.json(
@@ -131,16 +168,14 @@ export async function POST(request: Request) {
 
     // Compute totals
     let grossAmountCents = 0;
-    let platformFeeCents = 0;
+    let summedFeeCents = 0;
     for (const order of uncoveredOrders) {
       grossAmountCents += order.subtotal_cents ?? 0;
-      platformFeeCents += order.fee_cents ?? 0;
+      summedFeeCents += order.fee_cents ?? 0;
     }
 
-    // Re-derive platform fee at 7.5% (use existing fee_cents from orders)
     const computedPlatformFee = Math.ceil(grossAmountCents * PLATFORM_FEE_RATE);
-    const effectivePlatformFee = Math.max(platformFeeCents, computedPlatformFee);
-
+    const effectivePlatformFee = Math.max(summedFeeCents, computedPlatformFee);
     const chargebackReserveCents = Math.ceil(grossAmountCents * CHARGEBACK_RESERVE_RATE);
     const netAmountCents = grossAmountCents - effectivePlatformFee - chargebackReserveCents;
 
@@ -152,18 +187,18 @@ export async function POST(request: Request) {
     }
 
     // scheduled_for = event.ends_at + 48h (fall back to starts_at if ends_at is null)
-    const eventEndBase = eventData.ends_at ?? eventData.starts_at;
+    const eventEndBase = event.ends_at ?? event.starts_at;
     const scheduledFor = new Date(eventEndBase);
     scheduledFor.setHours(scheduledFor.getHours() + PAYOUT_DELAY_HOURS);
 
-    // Hold until = scheduled_for + 14 days for chargeback reserve
     const holdUntil = new Date(scheduledFor);
     holdUntil.setDate(holdUntil.getDate() + 14);
 
     const service = await createServiceClient();
 
     // Create the payout batch
-    const { data: batchData, error: batchErr } = await service
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: batchData, error: batchErr } = await (service as any)
       .from('payout_batches')
       .insert({
         organizer_id: user.id,
@@ -189,10 +224,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const batchId = batchData.id;
+    const batchId = (batchData as { id: string }).id;
 
     // Create line items for each order
-    const lineItems = uncoveredOrders.map((order: { id: string; subtotal_cents: number; fee_cents: number }) => {
+    const lineItems: LineItemInsert[] = uncoveredOrders.map((order) => {
       const gross = order.subtotal_cents ?? 0;
       const fee = Math.ceil(gross * PLATFORM_FEE_RATE);
       const reserve = Math.ceil(gross * CHARGEBACK_RESERVE_RATE);
@@ -206,7 +241,10 @@ export async function POST(request: Request) {
       };
     });
 
-    const { error: lineErr } = await service.from('payout_line_items').insert(lineItems);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: lineErr } = await (service as any)
+      .from('payout_line_items')
+      .insert(lineItems);
     if (lineErr) {
       console.error('[POST /api/payouts/request] line items error', lineErr);
     }

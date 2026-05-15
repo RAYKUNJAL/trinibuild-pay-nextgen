@@ -1,5 +1,37 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import type { Database } from '@/lib/database.types';
+
+type OrderRow = Database['public']['Tables']['orders']['Row'];
+type EventRow = Database['public']['Tables']['events']['Row'];
+
+type PayoutBatchRaw = {
+  id: string;
+  event_id: string | null;
+  gross_amount_cents: number;
+  platform_fee_cents: number;
+  chargeback_reserve_cents: number;
+  net_amount_cents: number;
+  currency: string;
+  status: string;
+  hold_reason: string | null;
+  hold_until: string | null;
+  bank_reference: string | null;
+  bank_account_last4: string | null;
+  bank_name: string | null;
+  scheduled_for: string;
+  initiated_at: string | null;
+  completed_at: string | null;
+  failed_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  events: { id: string; title: string; starts_at: string } | null;
+};
+
+type PayoutLineItemRaw = {
+  order_id: string;
+  payout_batches: { organizer_id: string } | null;
+};
 
 const PAGE_SIZE = 20;
 
@@ -20,7 +52,8 @@ export async function GET(request: Request) {
     const offset = (page - 1) * PAGE_SIZE;
 
     // Build payout_batches query with optional filters
-    let query = supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query = (supabase as any)
       .from('payout_batches')
       .select(
         `
@@ -43,7 +76,7 @@ export async function GET(request: Request) {
         failed_reason,
         created_at,
         updated_at,
-        events ( id, title, starts_at, ends_at )
+        events ( id, title, starts_at )
         `,
         { count: 'exact' },
       )
@@ -55,8 +88,7 @@ export async function GET(request: Request) {
       query = query.eq('event_id', eventId);
     }
     if (status) {
-      // status is a comma-separated list or single value
-      const statuses = status.split(',').map((s) => s.trim());
+      const statuses = status.split(',').map((s: string) => s.trim());
       if (statuses.length === 1) {
         query = query.eq('status', statuses[0]);
       } else {
@@ -70,7 +102,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: batchErr.message }, { status: 500 });
     }
 
-    const batches = batchesRaw ?? [];
+    const batches = (batchesRaw ?? []) as PayoutBatchRaw[];
 
     // Compute pending balance: paid orders for organizer's events not yet in a payout batch
     const { data: eventsData } = await supabase
@@ -78,18 +110,19 @@ export async function GET(request: Request) {
       .select('id')
       .eq('organizer_id', user.id);
 
-    const eventIds = (eventsData ?? []).map((e: { id: string }) => e.id);
+    const eventIds = ((eventsData ?? []) as Pick<EventRow, 'id'>[]).map((e) => e.id);
 
     let pendingBalanceCents = 0;
     if (eventIds.length > 0) {
       // Find all order IDs already assigned to a payout line item
-      const { data: lineItemOrders } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: lineItemOrders } = await (supabase as any)
         .from('payout_line_items')
         .select('order_id, payout_batches!inner(organizer_id)')
         .eq('payout_batches.organizer_id', user.id);
 
       const coveredOrderIds = new Set(
-        (lineItemOrders ?? []).map((li: { order_id: string }) => li.order_id),
+        ((lineItemOrders ?? []) as PayoutLineItemRaw[]).map((li) => li.order_id),
       );
 
       const { data: pendingOrders } = await supabase
@@ -98,9 +131,8 @@ export async function GET(request: Request) {
         .in('event_id', eventIds)
         .eq('status', 'paid');
 
-      for (const order of pendingOrders ?? []) {
+      for (const order of (pendingOrders ?? []) as Pick<OrderRow, 'id' | 'subtotal_cents' | 'fee_cents'>[]) {
         if (!coveredOrderIds.has(order.id)) {
-          // Pending balance = subtotal minus platform fee minus 5% chargeback reserve
           const gross = order.subtotal_cents ?? 0;
           const platformFee = order.fee_cents ?? 0;
           const chargebackReserve = Math.ceil(gross * 0.05);
@@ -110,14 +142,15 @@ export async function GET(request: Request) {
     }
 
     // Compute total paid out (sum of net_amount_cents for completed batches)
-    const { data: completedSum } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: completedSum } = await (supabase as any)
       .from('payout_batches')
       .select('net_amount_cents')
       .eq('organizer_id', user.id)
       .eq('status', 'completed');
 
-    const totalPaidOutCents = (completedSum ?? []).reduce(
-      (sum: number, b: { net_amount_cents: number }) => sum + (b.net_amount_cents ?? 0),
+    const totalPaidOutCents = ((completedSum ?? []) as { net_amount_cents: number }[]).reduce(
+      (sum, b) => sum + (b.net_amount_cents ?? 0),
       0,
     );
 

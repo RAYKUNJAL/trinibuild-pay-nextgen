@@ -42,7 +42,8 @@ export default async function StatementsPage() {
     redirect('/sign-in?next=/dashboard/payouts/statements');
   }
 
-  const { data: rawData, error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rawData, error } = await (supabase as any)
     .from('payout_batches')
     .select(
       `

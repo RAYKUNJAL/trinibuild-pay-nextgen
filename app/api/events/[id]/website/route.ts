@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { EventWebsite } from "@/components/event-website-preview";
+
+// Supabase client typed helper for the unregistered event_websites table
+// (table exists post-migration; database.types.ts is generated separately)
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ew(supabase: SupabaseClient) { return (supabase as any).from("event_websites"); }
 
 type RouteContext = { params: Promise<{ id: string }> };
 
