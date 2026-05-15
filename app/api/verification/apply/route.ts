@@ -20,11 +20,13 @@ export async function POST(request: Request) {
     }
 
     // Verify role is organizer
-    const { data: profile } = await supabase
+    const { data: profileRaw } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .maybeSingle();
+
+    const profile = profileRaw as { role: string } | null;
 
     if (!profile || profile.role !== "organizer") {
       return NextResponse.json(

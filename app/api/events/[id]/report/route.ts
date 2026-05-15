@@ -60,12 +60,14 @@ export async function POST(
     const serviceClient = await createServiceClient();
 
     if (reporterId) {
-      const { data: existing } = await serviceClient
+      const { data: existingRaw } = await serviceClient
         .from("event_reports")
         .select("id")
         .eq("event_id", eventId)
         .eq("reporter_id", reporterId)
         .maybeSingle();
+
+      const existing = existingRaw as { id: string } | null;
 
       if (existing) {
         return NextResponse.json(
@@ -83,12 +85,14 @@ export async function POST(
         // A proper implementation would use a rate-limit store (Redis / edge KV)
         // For now: check recent reports from the same email/IP fingerprint
         const fingerprint = `ip:${ip}`;
-        const { data: anonExisting } = await serviceClient
+        const { data: anonExistingRaw } = await serviceClient
           .from("event_reports")
           .select("id")
           .eq("event_id", eventId)
           .eq("reporter_email", fingerprint)
           .maybeSingle();
+
+        const anonExisting = anonExistingRaw as { id: string } | null;
 
         if (anonExisting) {
           return NextResponse.json(
@@ -100,11 +104,13 @@ export async function POST(
     }
 
     // Verify the event exists
-    const { data: event } = await serviceClient
+    const { data: eventRaw } = await serviceClient
       .from("events")
       .select("id")
       .eq("id", eventId)
       .maybeSingle();
+
+    const event = eventRaw as { id: string } | null;
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -123,11 +129,13 @@ export async function POST(
       status: "open" as const,
     };
 
-    const { data: report, error: insertError } = await serviceClient
+    const { data: reportRaw, error: insertError } = await serviceClient
       .from("event_reports")
       .insert(insertPayload)
       .select("id")
       .single();
+
+    const report = reportRaw as { id: string } | null;
 
     if (insertError || !report) {
       console.error("[report] insert error:", insertError);
