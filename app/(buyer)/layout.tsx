@@ -21,18 +21,9 @@ export default async function BuyerLayout({ children }: { children: React.ReactN
     <>
       <SiteHeader />
       <main className="min-h-[calc(100dvh-4rem)]">
-        <div className="container py-8">
-          <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
-            <aside className="hidden lg:block">
-              <BuyerNav />
-            </aside>
-            <div className="min-w-0">
-              <div className="mb-6 lg:hidden">
-                <BuyerNav />
-              </div>
-              {children}
-            </div>
-          </div>
+        <div className="container flex gap-8 py-8">
+          <BuyerNav />
+          <div className="min-w-0 flex-1">{children}</div>
         </div>
       </main>
       <SiteFooter />

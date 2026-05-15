@@ -8,11 +8,11 @@ import { Section } from "@/components/section";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TicketTierSelector } from "@/components/ticket-tier-selector";
 import { WhatsappCapture } from "@/components/whatsapp-capture";
 import { formatDateTime } from "@/lib/utils";
 import { env } from "@/lib/env";
 import { ShareButton } from "./share-button";
+import { TicketTiers } from "./ticket-tiers";
 
 type Params = { slug: string };
 
@@ -143,17 +143,17 @@ export default async function EventDetailPage({ params }: { params: Promise<Para
                 <p className="text-sm text-muted-foreground">
                   Drop your number. If seats free up, we&apos;ll WhatsApp you first.
                 </p>
-                <WhatsappCapture endpoint="/api/waitlist" hiddenFields={{ eventId: event.id }} />
+                <WhatsappCapture eventCity={event.city} />
               </div>
             ) : tiers.length > 0 ? (
-              <TicketTierSelector
+              <TicketTiers
                 eventId={event.id}
                 tiers={tiers.map((t) => ({
                   id: t.id,
                   name: t.name,
                   description: t.description,
                   priceCents: t.price_cents,
-                  remaining: Math.max(0, t.quantity - t.quantity_sold),
+                  quantityRemaining: Math.max(0, t.quantity - t.quantity_sold),
                 }))}
               />
             ) : (

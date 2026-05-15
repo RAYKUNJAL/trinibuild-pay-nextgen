@@ -1,0 +1,15 @@
+[api]
+port = 54321
+
+[db]
+port = 5432
+
+[studio]
+port = 54323
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/**"]
+jwt_expiry = 3600
+enable_phone_signup = true
+enable_phone_autoconfirm = false

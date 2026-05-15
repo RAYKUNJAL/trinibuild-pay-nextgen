@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signPassToken } from "@/lib/pass-token";
+import { qrDataUrl } from "@/lib/qr";
 import { PassCard } from "@/components/pass-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,7 @@ export default async function PassDetailPage({ params }: { params: Promise<Param
   if (!pass || !pass.events) notFound();
 
   const token = await signPassToken({ passId: pass.id, eventId: pass.event_id, code: pass.code });
+  const qrUrl = await qrDataUrl(token);
 
   const isUsed = pass.status === "used";
   const isVoided = pass.status === "voided";
@@ -60,15 +62,17 @@ export default async function PassDetailPage({ params }: { params: Promise<Param
 
       <div className={cn("relative", isUsed && "grayscale", isVoided && "opacity-90")}>
         <PassCard
-          qrValue={token}
-          eventTitle={pass.events.title}
-          tierName={pass.ticket_tiers?.name ?? "General"}
-          holderName={pass.holder_name ?? "Guest"}
-          venue={pass.events.venue}
-          city={pass.events.city}
-          startsAt={pass.events.starts_at}
-          code={pass.code}
-          coverImageUrl={pass.events.cover_image_url}
+          pass={{
+            id: pass.id,
+            eventTitle: pass.events.title,
+            eventStarts: pass.events.starts_at,
+            venue: `${pass.events.venue}, ${pass.events.city}`,
+            holderName: pass.holder_name ?? "Guest",
+            code: pass.code,
+            tierName: pass.ticket_tiers?.name ?? "General",
+            status: pass.status,
+            qrUrl,
+          }}
         />
         {isUsed ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-background/60">
