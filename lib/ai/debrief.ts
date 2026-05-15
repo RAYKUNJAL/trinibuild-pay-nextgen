@@ -1,4 +1,6 @@
 import { formatTTD } from "@/lib/utils";
+import { llm } from "@/lib/llm/client";
+import { DEBRIEF_ENRICHMENT_SYSTEM } from "@/lib/llm/prompts";
 
 export type DebriefInput = {
   eventTitle: string;
@@ -25,6 +27,8 @@ export type DebriefReport = {
   vsFeelingLine: string; // comparative context line
   recommendations: string[]; // exactly 3 rule-based recs for next event
   shareableCardText: string; // ~80-char social snippet
+  /** Optional LLM-written enrichment paragraph (only present when generated via {@link generateDebriefWithLLM}). */
+  llm_summary?: string;
 };
 
 /** Format a 0-23 hour integer as "hh:mm AM/PM – hh:mm AM/PM" window. */
@@ -179,4 +183,51 @@ export function generateDebrief(input: DebriefInput): DebriefReport {
     recommendations: recs,
     shareableCardText,
   };
+}
+
+/**
+ * LLM-enriched variant of {@link generateDebrief}.
+ *
+ * Always runs the deterministic logic first, then — if the LLM brain is
+ * configured — calls Claude (Sonnet tier) to rewrite the recommendations into
+ * a warm, specific 2-3 sentence paragraph. The deterministic fields are
+ * untouched so existing UI and downstream consumers keep working.
+ *
+ * If the LLM is not configured or the call fails, this function returns the
+ * deterministic report unchanged (no `llm_summary` set).
+ */
+export async function generateDebriefWithLLM(
+  input: DebriefInput,
+): Promise<DebriefReport> {
+  const base = generateDebrief(input);
+  if (!llm.isConfigured()) return base;
+
+  const payload = {
+    eventTitle: input.eventTitle,
+    capacity: input.capacity,
+    totalPasses: input.totalPasses,
+    usedPasses: input.usedPasses,
+    attendancePct: base.attendancePct,
+    revenueTTD: base.revenueTTD,
+    topTier: base.topTier,
+    peakEntryTime: base.peakEntryTime,
+    noShowPct: base.noShowPct,
+    revByTier: input.revByTier,
+    historicalAvgAttendancePct: input.historicalAvgAttendancePct,
+    platformAvgAttendancePct: input.platformAvgAttendancePct,
+    vsFeelingLine: base.vsFeelingLine,
+  };
+
+  const result = await llm.text({
+    prompt:
+      `Event summary:\n${JSON.stringify(payload, null, 2)}\n\n` +
+      `Deterministic recommendations:\n${base.recommendations.join("\n")}\n\n` +
+      `Rewrite the recommendations in 2-3 sentences of warm, specific advice for the promoter.`,
+    system: DEBRIEF_ENRICHMENT_SYSTEM,
+    model: "sonnet",
+    maxTokens: 400,
+  });
+
+  if (!result) return base;
+  return { ...base, llm_summary: result.text.trim() };
 }
