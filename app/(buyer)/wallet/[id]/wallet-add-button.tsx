@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 interface WalletAddButtonProps {
   passId: string;
   holderName: string;
+  /** Whether APPLE_WALLET_CERT is set on the server. */
+  appleEnabled?: boolean;
+  /** Whether GOOGLE_WALLET_SERVICE_ACCOUNT_PRIVATE_KEY is set on the server. */
+  googleEnabled?: boolean;
 }
 
 type AppleWalletResponse = {
@@ -65,9 +69,18 @@ function GoogleWalletLogo() {
   );
 }
 
-export function WalletAddButton({ passId, holderName }: WalletAddButtonProps) {
+export function WalletAddButton({
+  passId,
+  holderName,
+  appleEnabled = false,
+  googleEnabled = false,
+}: WalletAddButtonProps) {
   const [appleLoading, setAppleLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // If neither integration is configured, render nothing — the server page
+  // shows a small "coming soon" note instead.
+  if (!appleEnabled && !googleEnabled) return null;
 
   async function handleAppleWallet() {
     setAppleLoading(true);
@@ -146,39 +159,45 @@ export function WalletAddButton({ passId, holderName }: WalletAddButtonProps) {
       className="flex flex-col gap-3 sm:flex-row"
       aria-label={`Wallet options for ${holderName}`}
     >
-      {/* Apple Wallet button — black pill matching Apple brand guidelines */}
-      <button
-        type="button"
-        onClick={() => void handleAppleWallet()}
-        disabled={appleLoading}
-        className={cn(
-          "inline-flex items-center justify-center gap-2 rounded-full",
-          "bg-black px-5 py-2.5 text-sm font-semibold text-white",
-          "border border-black",
-          "transition-opacity hover:opacity-80 active:opacity-60",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-        )}
-      >
-        <AppleWalletLogo />
-        {appleLoading ? "Loading…" : "Add to Apple Wallet"}
-      </button>
+      {/* Apple Wallet button — black pill matching Apple brand guidelines.
+          Only rendered when APPLE_WALLET_CERT is set server-side. */}
+      {appleEnabled ? (
+        <button
+          type="button"
+          onClick={() => void handleAppleWallet()}
+          disabled={appleLoading}
+          className={cn(
+            "inline-flex items-center justify-center gap-2 rounded-full",
+            "bg-black px-5 py-2.5 text-sm font-semibold text-white",
+            "border border-black",
+            "transition-opacity hover:opacity-80 active:opacity-60",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          <AppleWalletLogo />
+          {appleLoading ? "Loading…" : "Add to Apple Wallet"}
+        </button>
+      ) : null}
 
-      {/* Google Wallet button — white with Google colours */}
-      <button
-        type="button"
-        onClick={() => void handleGoogleWallet()}
-        disabled={googleLoading}
-        className={cn(
-          "inline-flex items-center justify-center gap-2 rounded-full",
-          "bg-white px-5 py-2.5 text-sm font-semibold text-[#3c4043]",
-          "border border-[#dadce0]",
-          "transition-colors hover:bg-[#f8f9fa] active:bg-[#e8eaed]",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-        )}
-      >
-        <GoogleWalletLogo />
-        {googleLoading ? "Loading…" : "Save to Google Wallet"}
-      </button>
+      {/* Google Wallet button — white with Google colours.
+          Only rendered when GOOGLE_WALLET_SERVICE_ACCOUNT_PRIVATE_KEY is set. */}
+      {googleEnabled ? (
+        <button
+          type="button"
+          onClick={() => void handleGoogleWallet()}
+          disabled={googleLoading}
+          className={cn(
+            "inline-flex items-center justify-center gap-2 rounded-full",
+            "bg-white px-5 py-2.5 text-sm font-semibold text-[#3c4043]",
+            "border border-[#dadce0]",
+            "transition-colors hover:bg-[#f8f9fa] active:bg-[#e8eaed]",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          <GoogleWalletLogo />
+          {googleLoading ? "Loading…" : "Save to Google Wallet"}
+        </button>
+      ) : null}
     </div>
   );
 }

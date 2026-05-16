@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
+import { getReadinessSuggestionWithLLM } from "@/lib/ai/readiness";
 
 type CheckRow = Database["public"]["Tables"]["event_readiness_checks"]["Row"];
 
@@ -70,7 +71,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const doneCount = allChecks.filter((c) => c.done).length;
     const score = Math.round((doneCount / ALL_CHECK_KEYS.length) * 100);
 
-    return NextResponse.json({ checks: allChecks, score });
+    const missingChecks = allChecks.filter((c) => !c.done).map((c) => c.key);
+    const suggestion = await getReadinessSuggestionWithLLM(score, missingChecks);
+
+    return NextResponse.json({ checks: allChecks, score, suggestion });
   } catch (err) {
     console.error("[GET /api/readiness/[eventId]]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });

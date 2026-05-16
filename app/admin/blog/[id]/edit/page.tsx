@@ -15,6 +15,10 @@ export default async function EditBlogPostPage({ params }: PageProps) {
   const post = await getPostById(id);
   if (!post) notFound();
 
+  // Gate "Draft with AI" on the server-side key — otherwise the API returns
+  // hardcoded stub MDX and shipping the button would be a UX lie.
+  const llmConfigured = Boolean(process.env.ANTHROPIC_API_KEY);
+
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-6">
       <header className="border-b border-border/60 pb-4">
@@ -28,6 +32,7 @@ export default async function EditBlogPostPage({ params }: PageProps) {
       <BlogPostForm
         mode="edit"
         postId={post.id}
+        llmConfigured={llmConfigured}
         initial={{
           title: post.title,
           slug: post.slug,

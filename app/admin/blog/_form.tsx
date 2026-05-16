@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,9 +44,17 @@ export interface BlogPostFormProps {
   postId?: string;
   defaultAuthorName?: string;
   initial?: Partial<FormValues>;
+  /** Whether ANTHROPIC_API_KEY is configured on the server. */
+  llmConfigured?: boolean;
 }
 
-export function BlogPostForm({ mode, postId, defaultAuthorName = "", initial }: BlogPostFormProps) {
+export function BlogPostForm({
+  mode,
+  postId,
+  defaultAuthorName = "",
+  initial,
+  llmConfigured = false,
+}: BlogPostFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isDrafting, setIsDrafting] = useState(false);
@@ -260,6 +268,15 @@ export function BlogPostForm({ mode, postId, defaultAuthorName = "", initial }: 
       <div>
         <div className="mb-2 flex items-center justify-between">
           <Label htmlFor="content_mdx">Body (Markdown / MDX)</Label>
+          {!llmConfigured ? (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border/70 px-2.5 py-1 text-xs text-muted-foreground"
+              title="The Draft with AI feature is disabled because ANTHROPIC_API_KEY is not set on the server."
+            >
+              <Info className="h-3.5 w-3.5" aria-hidden />
+              Set ANTHROPIC_API_KEY to enable AI drafts
+            </span>
+          ) : (
           <Dialog open={draftOpen} onOpenChange={setDraftOpen}>
             <DialogTrigger asChild>
               <Button type="button" variant="outline" size="sm">
@@ -324,6 +341,7 @@ export function BlogPostForm({ mode, postId, defaultAuthorName = "", initial }: 
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )}
         </div>
         <Textarea
           id="content_mdx"
