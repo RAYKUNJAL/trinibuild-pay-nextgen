@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime, cn } from "@/lib/utils";
 import { SendWhatsappButton } from "./send-whatsapp-button";
+import { WalletAddButton } from "./wallet-add-button";
 
 export const metadata: Metadata = { title: "Your pass" };
 
@@ -52,6 +53,14 @@ export default async function PassDetailPage({ params }: { params: Promise<Param
   const isUsed = pass.status === "used";
   const isVoided = pass.status === "voided";
 
+  // Gate wallet buttons on server-side env vars. If the certs/keys are missing
+  // the API returns a 202 stub, so showing the button would be a UX lie.
+  const appleEnabled = Boolean(process.env.APPLE_WALLET_CERT);
+  const googleEnabled = Boolean(
+    process.env.GOOGLE_WALLET_SERVICE_ACCOUNT_PRIVATE_KEY,
+  );
+  const canShowWallet = !isUsed && !isVoided;
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-4">
@@ -92,15 +101,22 @@ export default async function PassDetailPage({ params }: { params: Promise<Param
         Show this at the door. One scan only — keep your screen brightness up.
       </p>
 
-      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
+      <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center sm:items-center">
         <SendWhatsappButton passId={pass.id} />
-        <Button variant="outline" disabled title="Coming soon">
-          Add to Apple Wallet
-        </Button>
-        <Button variant="outline" disabled title="Coming soon">
-          Add to Google Wallet
-        </Button>
+        {canShowWallet && (appleEnabled || googleEnabled) ? (
+          <WalletAddButton
+            passId={pass.id}
+            holderName={pass.holder_name ?? "Guest"}
+            appleEnabled={appleEnabled}
+            googleEnabled={googleEnabled}
+          />
+        ) : null}
       </div>
+      {canShowWallet && !appleEnabled && !googleEnabled ? (
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          Apple &amp; Google Wallet coming soon
+        </p>
+      ) : null}
     </div>
   );
 }

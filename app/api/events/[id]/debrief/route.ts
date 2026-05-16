@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
+import { generateDebriefWithLLM } from "@/lib/ai/debrief";
 
 type EventRow = Database["public"]["Tables"]["events"]["Row"];
 
@@ -169,7 +170,24 @@ export async function POST(_request: Request, { params }: RouteParams) {
       peak_entry_hour_count: peakHourCount,
     };
 
-    return NextResponse.json({ report });
+    const enriched = await generateDebriefWithLLM({
+      eventTitle: event.title,
+      startedAt: new Date(event.starts_at),
+      endedAt: event.ends_at ? new Date(event.ends_at) : new Date(event.starts_at),
+      capacity: total,
+      totalPasses: total,
+      usedPasses: scanned,
+      revByTier: revenueByTier.map((t) => ({
+        tierName: t.tier_name,
+        qty: t.quantity_sold,
+        revenueCents: t.revenue_cents,
+      })),
+      peakEntryHour: peakHour ?? 0,
+      refundedOrders: 0,
+      noShows: noShowCount,
+    });
+
+    return NextResponse.json({ report, llm_summary: enriched.llm_summary ?? null });
   } catch (err) {
     console.error("[POST /api/events/[id]/debrief]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : "Internal error" }, { status: 500 });
